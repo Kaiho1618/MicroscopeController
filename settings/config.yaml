@@ -1,0 +1,46 @@
+# カメラ設定
+camera:
+  default_exposure: 100      # デフォルト露出時間
+  resolution_width: 1920     # 解像度（幅）
+  resolution_height: 1080    # 解像度（高さ）
+  auto_focus: true          # オートフォーカス有効
+  frame_rate: 30            # フレームレート
+  contrast: 50              # コントラスト (0-100)
+
+# ステージ設定
+stage:
+  com_port: "COM3"          # COMポート
+  baud_rate: 9600           # ボーレート
+  timeout: 5.0              # 通信タイムアウト（秒）
+  x_min: -50.0              # X軸最小座標
+  x_max: 50.0               # X軸最大座標
+  y_min: -50.0              # Y軸最小座標
+  y_max: 50.0               # Y軸最大座標
+  default_speed: 10.0       # デフォルト移動速度
+  max_speed: 100.0          # 最大移動速度
+  step_size: 0.1            # 最小移動単位
+
+# スティッチング設定
+stitching:
+  overlap_ratio: 0.1        # 画像重複率 (0.0-0.5)
+  grid_spacing: 10.0        # グリッド間隔
+  max_images: 100           # 最大画像数
+  image_format: "PNG"       # 保存形式 (PNG/JPEG/TIFF)
+  compression_quality: 95   # 圧縮品質 (1-100)
+  auto_blend: true          # 自動ブレンド
+  blend_method: "linear"    # ブレンド方式 (linear/multiband/feather)
+
+# GUI設定
+gui:
+  window_width: 1200        # ウィンドウ幅
+  window_height: 800        # ウィンドウ高さ
+  theme: "light"            # テーマ (light/dark)
+  show_coordinates: true    # 座標表示
+  show_scale_bar: true      # スケールバー表示
+
+# アプリケーション設定
+mock: true
+log_level: "INFO"           # ログレベル (DEBUG/INFO/WARNING/ERROR)
+data_directory: "data"      # データ保存ディレクトリ
+backup_directory: "backup" # バックアップディレクトリ
+temp_directory: "temp"      # 一時ファイルディレクトリ
