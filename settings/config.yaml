@@ -1,11 +1,8 @@
 # カメラ設定
 camera:
-  default_exposure: 100      # デフォルト露出時間
   resolution_width: 1920     # 解像度（幅）
   resolution_height: 1080    # 解像度（高さ）
-  auto_focus: true          # オートフォーカス有効
-  frame_rate: 30            # フレームレート
-  contrast: 50              # コントラスト (0-100)
+  frame_rate: 10            # フレームレート
 
 # ステージ設定
 stage:

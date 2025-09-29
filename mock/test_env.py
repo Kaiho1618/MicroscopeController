@@ -60,6 +60,8 @@ class TestEnv():
 
         # stopが押されたときに、まとめて移動する
         self.start_time = time.time()
+        self.speed = speed
+        self.degree = degree
         self.is_moving = True
     
     def stop_move(self):
@@ -97,6 +99,21 @@ class TestEnv():
     
     def display_status(self):
         print(f"Position: ({self.x:.2f}, {self.y:.2f}), Moving: {self.is_moving}")
+
+    def update(self):
+        if self.is_moving:
+            elapsed = time.time() - self.start_time
+
+            distance = self.speed * elapsed
+            dx = distance * np.cos(np.radians(self.degree))
+            dy = distance * np.sin(np.radians(self.degree))
+
+            # 範囲外チェック
+            if not self.move_to(dx, dy, is_relative=True):
+                print("Reached boundary, stopping movement.")
+                self.is_moving = False
+            self.start_time = time.time()  # Reset start time for next update
+
 
 test_env = TestEnv()
 
