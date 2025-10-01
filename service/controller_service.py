@@ -65,6 +65,17 @@ class MockControllerService:
             error_event = ErrorEvent(error_message=f"Failed to move to position: {str(e)}")
             event_bus.publish(error_event)
 
+    def get_current_position(self):
+        return test_env.get_current_position()
+
+    def is_valid_movement(self, x, y, is_relative) -> bool:
+        """指定座標への移動が範囲内かチェックする"""
+        if is_relative:
+            current_pos = self.get_current_position()
+            x += current_pos[0]
+            y += current_pos[1]
+        return (test_env.min_x <= x <= test_env.max_x) and (test_env.min_y <= y <= test_env.max_y)
+
 
 class ControllerService:
     def __init__(self, config: Dict[str, Any]):

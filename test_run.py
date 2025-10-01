@@ -1,3 +1,4 @@
+from enums.stage import CornerPosition
 from utils import config_loader
 import time
 import tkinter as tk
@@ -6,21 +7,64 @@ import threading
 from service.file_service import FileService
 from service.image_service import create_image_service
 from service.controller_service import create_controller_service
-from presentation.gui import ManualControllerGUI
+from service.image_process_service import ImageProcessService
+from presentation.gui import MicroscopeGUI
 from application.manual_controller import ManualController
+from application.stitching_controller import StitchingController
 from application.event_bus import event_bus
 from mock.test_env import test_env
+from enums.camera import CameraMagnitude
+from enums.stage import CornerPosition
+
+
+def stitching_test():
+    config = config_loader.load_config("settings/config.yaml")
+    controller_service = create_controller_service(config)
+    image_service = create_image_service(config)
+    image_process_service = ImageProcessService(config)
+    file_service = FileService(config)
+    magnitude=CameraMagnitude.MAG_5X
+
+    stitching_controller = StitchingController(
+        config,
+        controller_service,
+        image_service,
+        image_process_service,
+    )
+
+    stitching_controller.start()
+    stitching_controller.stitching(
+        grid_size_x=3,
+        grid_size_y=3,
+        magnitude=CameraMagnitude.MAG_5X,
+        corner=CornerPosition.TOP_LEFT
+    )
 
 
 def main():
     config = config_loader.load_config("settings/config.yaml")
     controller_service = create_controller_service(config)
     image_service = create_image_service(config)
+    image_process_service = ImageProcessService(config)
     file_service = FileService(config)
 
+    # Initialize manual controller
+    manual_controller = ManualController(
+        config,
+        controller_service,
+        image_service,
+    )
+
+    stitching_controller = StitchingController(
+        config,
+        controller_service,
+        image_service,
+        image_process_service,
+    )
+
     root = tk.Tk()
-    app = ManualControllerGUI(
-        root, config, controller_service, image_service, file_service
+    app = MicroscopeGUI(
+        root, config, controller_service, image_service, file_service, manual_controller, stitching_controller
     )
 
     stop_event = threading.Event()
@@ -51,3 +95,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    # stitching_test()

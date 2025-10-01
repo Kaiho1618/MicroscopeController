@@ -10,14 +10,15 @@ import numpy as np
 # Add the project root to the path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from application.manual_controller import ManualController
-from application.event_bus import event_bus, ImageCaptureEvent, ErrorEvent, StartMoveEvent, StopMoveEvent, MoveToEvent
+from application.event_bus import event_bus, ImageCaptureEvent, ErrorEvent, StartMoveEvent, StopMoveEvent, MoveToEvent, StitchingProgressEvent
+from enums.stage import CornerPosition
+from enums.camera import CameraMagnitude
 
 
-class ManualControllerGUI:
-    def __init__(self, root, config, controller_service, image_service, file_service):
+class MicroscopeGUI:
+    def __init__(self, root, config, controller_service, image_service, file_service, manual_controller, stitching_controller):
         self.root = root
-        self.root.title("Manual Controller")
+        self.root.title("Microscope Controller")
         window_h = config["gui"]["window_height"]
         window_w = config["gui"]["window_width"]
         self.root.geometry(f"{window_w}x{window_h}")
@@ -29,12 +30,8 @@ class ManualControllerGUI:
         self.image_service = image_service
         self.file_service = file_service
 
-        # Initialize manual controller
-        self.manual_controller = ManualController(
-            self.config,
-            self.controller_service,
-            self.image_service
-        )
+        self.manual_controller = manual_controller
+        self.stitching_controller = stitching_controller
 
         # Set up GUI
         self.setup_gui()
@@ -76,7 +73,7 @@ class ManualControllerGUI:
         right_panel.grid(row=0, column=1, sticky=(tk.W, tk.E, tk.N, tk.S))
 
         # Title in left panel
-        title_label = ttk.Label(left_panel, text="Manual Controller", font=("Arial", 14, "bold"))
+        title_label = ttk.Label(left_panel, text="Microscope Controller", font=("Arial", 14, "bold"))
         title_label.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 5))
 
         # Movement controls in left panel
@@ -110,21 +107,14 @@ class ManualControllerGUI:
         position_frame = ttk.LabelFrame(left_panel, text="Position Controls", padding="5")
         position_frame.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=(0, 5))
 
-        # X, Y position with tighter spacing and input validation
+        # X, Y position with tighter spacing
         ttk.Label(position_frame, text="X:").grid(row=0, column=0, sticky=tk.W)
-        self.x_var = 0.0#  tk.DoubleVar(value=0.0)
-
-        # Register validation function for numeric input
-        vcmd = (self.root.register(self.validate_number), '%P')
-
-        x_entry = ttk.Entry(position_frame, textvariable=self.x_var, width=8, validate='key')
-        x_entry.grid(row=0, column=1, padx=2)
+        self.x_var = tk.DoubleVar(value=0.0)
+        ttk.Entry(position_frame, textvariable=self.x_var, width=8).grid(row=0, column=1, padx=2)
 
         ttk.Label(position_frame, text="Y:").grid(row=0, column=2, sticky=tk.W)
         self.y_var = tk.DoubleVar(value=0.0)
-
-        y_entry = ttk.Entry(position_frame, textvariable=self.y_var, width=8, validate='key')
-        y_entry.grid(row=0, column=3, padx=2)
+        ttk.Entry(position_frame, textvariable=self.y_var, width=8).grid(row=0, column=3, padx=2)
 
         # Relative checkbox
         self.relative_var = tk.BooleanVar(value=True)
@@ -133,9 +123,45 @@ class ManualControllerGUI:
         # Move to button
         ttk.Button(position_frame, text="Move To", command=self.move_to).grid(row=0, column=5, padx=(5, 0))
 
+        # Stitching controls in left panel
+        stitching_frame = ttk.LabelFrame(left_panel, text="Stitching Controls", padding="5")
+        stitching_frame.grid(row=3, column=0, sticky=(tk.W, tk.E), pady=(0, 5))
+
+        # Grid size controls
+        ttk.Label(stitching_frame, text="Grid X:").grid(row=0, column=0, sticky=tk.W)
+        self.grid_x_var = tk.IntVar(value=3)
+        ttk.Entry(stitching_frame, textvariable=self.grid_x_var, width=6).grid(row=0, column=1, padx=2)
+
+        ttk.Label(stitching_frame, text="Grid Y:").grid(row=0, column=2, sticky=tk.W)
+        self.grid_y_var = tk.IntVar(value=3)
+        ttk.Entry(stitching_frame, textvariable=self.grid_y_var, width=6).grid(row=0, column=3, padx=2)
+
+        # Magnification selection
+        ttk.Label(stitching_frame, text="Magnitude:").grid(row=1, column=0, sticky=tk.W)
+        self.magnitude_var = tk.StringVar(value=CameraMagnitude.MAG_10X.value)
+        magnitude_combo = ttk.Combobox(stitching_frame, textvariable=self.magnitude_var,
+                                     values=[mag.value for mag in CameraMagnitude],
+                                     width=8, state="readonly")
+        magnitude_combo.grid(row=1, column=1, columnspan=2, padx=2, sticky=tk.W)
+
+        # Corner position selection
+        ttk.Label(stitching_frame, text="Start Corner:").grid(row=2, column=0, sticky=tk.W)
+        self.corner_var = tk.StringVar(value=CornerPosition.TOP_LEFT.value)
+        corner_combo = ttk.Combobox(stitching_frame, textvariable=self.corner_var,
+                                  values=[corner.value for corner in CornerPosition],
+                                  width=12, state="readonly")
+        corner_combo.grid(row=2, column=1, columnspan=3, padx=2, sticky=tk.W)
+
+        # Stitching button and status
+        self.stitching_button = ttk.Button(stitching_frame, text="Start Stitching", command=self.start_stitching)
+        self.stitching_button.grid(row=3, column=0, columnspan=2, pady=(5, 0), sticky=tk.W)
+
+        self.stitching_status = ttk.Label(stitching_frame, text="Ready", font=("Arial", 8))
+        self.stitching_status.grid(row=3, column=2, columnspan=2, pady=(5, 0), sticky=tk.W)
+
         # Image controls in left panel
         image_frame = ttk.LabelFrame(left_panel, text="Image Controls", padding="5")
-        image_frame.grid(row=3, column=0, sticky=(tk.W, tk.E), pady=(0, 5))
+        image_frame.grid(row=4, column=0, sticky=(tk.W, tk.E), pady=(0, 5))
 
         ttk.Button(image_frame, text="Capture Image", command=self.capture_image).grid(row=0, column=0, padx=(0, 5))
 
@@ -164,7 +190,7 @@ class ManualControllerGUI:
 
         # Event log in left panel - compact size
         log_frame = ttk.LabelFrame(left_panel, text="Event Log", padding="5")
-        log_frame.grid(row=4, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(5, 0))
+        log_frame.grid(row=5, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(5, 0))
 
         # Text widget with scrollbar - smaller height and width for left panel
         self.log_text = tk.Text(log_frame, height=8, width=40, font=("Arial", 8))
@@ -180,19 +206,9 @@ class ManualControllerGUI:
         main_frame.columnconfigure(0, weight=0)  # Left panel fixed width
         main_frame.columnconfigure(1, weight=1)  # Right panel gets all remaining space
         left_panel.columnconfigure(0, weight=1)
-        left_panel.rowconfigure(4, weight=1)  # Event log expands in left panel
+        left_panel.rowconfigure(5, weight=1)  # Event log expands in left panel
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
-
-    def validate_number(self, value):
-        """Validate that input is a valid number (int or float, positive or negative)"""
-        if value == "" or value == "-" or value == ".":
-            return True  # Allow empty, minus sign, or decimal point
-        try:
-            float(value)
-            return True
-        except ValueError:
-            return False
 
     def setup_keyboard_bindings(self):
         """Set up keyboard event bindings for movement control"""
@@ -204,7 +220,6 @@ class ManualControllerGUI:
         self.root.bind('<KeyRelease>', self.on_key_release)
 
         # Bind focus events to ensure keyboard events work
-        self.root.bind('<FocusIn>', self.on_focus_in)
         self.root.bind('<Button-1>', self.on_click)
 
     def setup_event_subscriptions(self):
@@ -214,6 +229,7 @@ class ManualControllerGUI:
         event_bus.subscribe(StartMoveEvent, self.on_start_move)
         event_bus.subscribe(StopMoveEvent, self.on_stop_move)
         event_bus.subscribe(MoveToEvent, self.on_move_to)
+        event_bus.subscribe(StitchingProgressEvent, self.on_stitching_progress)
 
     def load_default_image(self):
         """Load and display the default no-image placeholder"""
@@ -297,7 +313,9 @@ class ManualControllerGUI:
 
     def on_click(self, event):
         """Handle click events to maintain focus"""
-        self.root.focus_set()
+        # don't steal focus from Entry widgets
+        if not isinstance(event.widget, ttk.Entry):
+            self.root.focus_set()
 
     def capture_image(self):
         """Capture image"""
@@ -465,6 +483,65 @@ class ManualControllerGUI:
         """Handle move to event"""
         self.log_event(f"Moving to {event.target_pos}, relative: {event.is_relative}")
 
+    def start_stitching(self):
+        """Start stitching process"""
+        try:
+            # Get parameters from GUI
+            grid_x = self.grid_x_var.get()
+            grid_y = self.grid_y_var.get()
+            magnitude_str = self.magnitude_var.get()
+            corner_str = self.corner_var.get()
+
+            # Convert string values to enums
+            magnitude = None
+            for mag in CameraMagnitude:
+                if mag.value == magnitude_str:
+                    magnitude = mag
+                    break
+
+            corner = None
+            for cor in CornerPosition:
+                if cor.value == corner_str:
+                    corner = cor
+                    break
+
+            if magnitude is None or corner is None:
+                self.log_event("ERROR: Invalid magnitude or corner selection")
+                return
+
+            # Validate grid size
+            if grid_x < 1 or grid_y < 1:
+                self.log_event("ERROR: Grid size must be at least 1x1")
+                return
+
+            # Disable stitching button and stop manual controller
+            self.stitching_button.configure(state="disabled")
+            self.stitching_status.configure(text="Starting...")
+            self.manual_controller.stop()
+
+            # Start stitching controller
+            self.stitching_controller.start()
+            self.stitching_controller.stitching(grid_x, grid_y, magnitude, corner)
+
+            self.log_event(f"Stitching started: {grid_x}x{grid_y} grid, {magnitude_str} magnitude, starting from {corner_str}")
+
+        except Exception as e:
+            self.log_event(f"ERROR: Failed to start stitching: {str(e)}")
+            self.stitching_button.configure(state="normal")
+            self.stitching_status.configure(text="Error")
+
+    def on_stitching_progress(self, event: StitchingProgressEvent):
+        """Handle stitching progress event"""
+        self.log_event(f"STITCHING: {event.progress_message}")
+        self.stitching_status.configure(text=event.progress_message)
+
+        # Re-enable stitching button when completed or failed
+        if "completed" in event.progress_message.lower() or "failed" in event.progress_message.lower() or "error" in event.progress_message.lower():
+            self.stitching_button.configure(state="normal")
+            self.stitching_status.configure(text="Ready")
+            # Restart manual controller
+            self.manual_controller.start()
+
     def log_event(self, message):
         """Add event to log"""
         import datetime
@@ -482,12 +559,13 @@ class ManualControllerGUI:
 
 def main():
     root = tk.Tk()
-    app = ManualControllerGUI(root)
+    app = MicroscopeGUI(root)
 
     # Handle window closing
     def on_closing():
         app.stop_auto_capture()  # Stop auto capture timer
         app.manual_controller.stop()
+        app.stitching_controller.stop()  # Stop stitching controller
         event_bus.clear_all_subscribers()
         root.destroy()
 

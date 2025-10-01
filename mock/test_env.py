@@ -23,7 +23,7 @@ class TestEnv():
 
         self.start_time = time.time()
         self.is_moving = False
-        self.mock_image = cv2.imread("mock/img/mock_image.jpg")
+        self.mock_image = cv2.imread("mock/img/mock_image2.jpg")
 
     def connect(self) -> bool:
         """
@@ -113,6 +113,9 @@ class TestEnv():
                 print("Reached boundary, stopping movement.")
                 self.is_moving = False
             self.start_time = time.time()  # Reset start time for next update
+
+    def get_current_position(self):
+        return (self.x, self.y)
 
 
 test_env = TestEnv()
