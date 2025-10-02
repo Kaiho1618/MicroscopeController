@@ -38,10 +38,10 @@ class ManualController:
     def _key_to_direction(self, key: str) -> float:
         """Convert keyboard character to direction in degrees"""
         key_map = {
-            'w': 0,     # Up
-            'a': 270,   # Left
-            's': 180,   # Down
-            'd': 90,    # Right
+            'w': 90,     # Up
+            'a': 180,   # Left
+            's': 270,   # Down
+            'd': 0,    # Right
         }
         return key_map.get(key.lower())
 

@@ -11,8 +11,7 @@ import numpy as np
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from application.event_bus import event_bus, ImageCaptureEvent, ErrorEvent, StartMoveEvent, StopMoveEvent, MoveToEvent, StitchingProgressEvent
-from enums.stage import CornerPosition
-from enums.camera import CameraMagnitude
+from enums.enums import CameraMagnitude, CornerPosition, ProgressStatus, SpeedLevel
 
 
 class MicroscopeGUI:
@@ -60,6 +59,9 @@ class MicroscopeGUI:
 
         self.capture_interval = int(1 / self.config["camera"]["frame_rate"] * 1000)  # [ms]
 
+        # 現在表示されている画像がスティッチング画像かどうかのフラグ
+        self.stitched_image_flag = False
+
     def setup_gui(self):
         # Main frame with less padding
         main_frame = ttk.Frame(self.root, padding="5")
@@ -80,11 +82,12 @@ class MicroscopeGUI:
         movement_frame = ttk.LabelFrame(left_panel, text="Movement Controls", padding="5")
         movement_frame.grid(row=1, column=0, sticky=(tk.W, tk.E), pady=(0, 5))
 
-        # Speed control with less spacing
         ttk.Label(movement_frame, text="Speed:").grid(row=0, column=0, sticky=tk.W)
-        self.speed_var = tk.DoubleVar(value=10.0)
-        speed_entry = ttk.Entry(movement_frame, textvariable=self.speed_var, width=8)
-        speed_entry.grid(row=0, column=1, padx=(2, 10), sticky=tk.W)
+        self.speed_var = tk.StringVar(value=SpeedLevel.S1.name)
+        speed_combo = ttk.Combobox(movement_frame, textvariable=self.speed_var,
+                                  values=[speed.name for speed in SpeedLevel],
+                                  width=8, state="readonly")
+        speed_combo.grid(row=0, column=1, padx=(2, 10), sticky=tk.W)
 
         # Movement buttons
         self.button_move_up = ttk.Button(movement_frame, text="↑ (W)", command=lambda: self.move_key('w'))
@@ -122,6 +125,9 @@ class MicroscopeGUI:
 
         # Move to button
         ttk.Button(position_frame, text="Move To", command=self.move_to).grid(row=0, column=5, padx=(5, 0))
+
+        # Go to origin button
+        ttk.Button(position_frame, text="Go to Origin", command=self.go_to_origin).grid(row=1, column=0, columnspan=6, pady=(5, 0), sticky=(tk.W, tk.E))
 
         # Stitching controls in left panel
         stitching_frame = ttk.LabelFrame(left_panel, text="Stitching Controls", padding="5")
@@ -249,9 +255,10 @@ class MicroscopeGUI:
 
     def move_key(self, key):
         """Handle keyboard movement"""
-        speed = self.speed_var.get()
+        speed_name = self.speed_var.get()
+        speed = SpeedLevel[speed_name].value
         self.manual_controller.start_move(speed, key)
-        self.log_event(f"Movement started: {key} at speed {speed}")
+        self.log_event(f"Movement started: {key} at speed {speed_name} ({speed})")
 
     def stop_move(self):
         """Stop movement"""
@@ -272,6 +279,11 @@ class MicroscopeGUI:
         is_relative = self.relative_var.get()
         self.manual_controller.move_to(x, y, is_relative)
         self.log_event(f"Move to ({x}, {y}), relative: {is_relative}")
+
+    def go_to_origin(self):
+        """Move to origin position (0, 0)"""
+        self.manual_controller.move_to(0, 0, is_relative=False)
+        self.log_event("Moving to origin (0, 0)")
 
     def on_key_press(self, event):
         """Handle key press events for movement"""
@@ -394,6 +406,15 @@ class MicroscopeGUI:
     def on_image_capture(self, event: ImageCaptureEvent):
         """Handle image capture event"""
         self.log_event(f"Image captured at {event.timestamp}")
+
+        if event.is_stitched_image:
+            # 画像が更新されないようにauto captureを止める
+            if self.auto_capture_active:
+                self.stop_auto_capture()
+            self.stitched_image_flag = True
+        else:
+            self.stitched_image_flag = False
+
         # Display the captured image
         self.display_image(event.image_data)
 
@@ -430,10 +451,12 @@ class MicroscopeGUI:
             # Use the smaller scale to maintain aspect ratio
             scale = min(scale_x, scale_y)
 
-            # If image is smaller than minimum size, enlarge it
+            # If image is smaller than minimum size, enlarge it while maintaining aspect ratio
             if width < min_size and height < min_size:
-                min_scale = min_size / max(width, height)
+                min_scale = min_size / min(width, height)
                 scale = max(scale, min_scale)
+                # Recalculate to ensure we don't exceed max dimensions
+                scale = min(scale, max_width / width, max_height / height)
 
             # Calculate new dimensions
             new_width = int(width * scale)
@@ -521,9 +544,12 @@ class MicroscopeGUI:
 
             # Start stitching controller
             self.stitching_controller.start()
-            self.stitching_controller.stitching(grid_x, grid_y, magnitude, corner)
-
-            self.log_event(f"Stitching started: {grid_x}x{grid_y} grid, {magnitude_str} magnitude, starting from {corner_str}")
+            success_flag = self.stitching_controller.stitching(grid_x, grid_y, magnitude, corner)
+            if not success_flag:
+                self.end_stitching()
+                self.log_event("ERROR: Stitching process failed to start")
+            else:
+                self.log_event(f"Stitching started: {grid_x}x{grid_y} grid, {magnitude_str} magnitude, starting from {corner_str}")
 
         except Exception as e:
             self.log_event(f"ERROR: Failed to start stitching: {str(e)}")
@@ -535,12 +561,22 @@ class MicroscopeGUI:
         self.log_event(f"STITCHING: {event.progress_message}")
         self.stitching_status.configure(text=event.progress_message)
 
-        # Re-enable stitching button when completed or failed
-        if "completed" in event.progress_message.lower() or "failed" in event.progress_message.lower() or "error" in event.progress_message.lower():
-            self.stitching_button.configure(state="normal")
-            self.stitching_status.configure(text="Ready")
-            # Restart manual controller
-            self.manual_controller.start()
+        if event.status == ProgressStatus.COMPLETED:
+            self.log_event("STITCHING: Completed successfully")
+            self.end_stitching()
+        elif event.status == ProgressStatus.FAILED:
+            self.log_event("STITCHING: Failed")
+            self.stitching_controller.stop()  # Stop stitching controller
+        elif event.status == ProgressStatus.CANCELLED:
+            self.log_event("STITCHING: Cancelled")
+            self.stitching_controller.stop()  # Stop stitching controller
+
+    def end_stitching(self):
+        self.stitching_controller.stop()  # Stop stitching controller
+        self.stitching_button.configure(state="normal")
+        self.stitching_status.configure(text="Ready")
+        # Restart manual controller
+        self.manual_controller.start()
 
     def log_event(self, message):
         """Add event to log"""

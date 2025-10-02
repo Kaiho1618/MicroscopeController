@@ -2,12 +2,14 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Callable, Dict, List
 import threading
+from enums.enums import ProgressStatus
 
 
 @dataclass
 class ImageCaptureEvent:
     image_data: Any
     timestamp: datetime
+    is_stitched_image: bool = False
 
 
 @dataclass
@@ -35,6 +37,7 @@ class MoveToEvent:
 @dataclass
 class StitchingProgressEvent:
     progress_message: str
+    status: ProgressStatus = ProgressStatus.IN_PROGRESS
 
 
 class EventBus:

@@ -13,8 +13,8 @@ class TestEnv():
         self.x = 0.0
         self.y = 0.0
         
-        self.max_x = 100.0  # ステージの最大X座標 [mm]
-        self.max_y = 100.0  # ステージの最大Y座標 [mm]
+        self.max_x = 1000.0  # ステージの最大X座標 [mm]
+        self.max_y = 1000.0  # ステージの最大Y座標 [mm]
         self.min_x = 0.0    # ステージの最小X座標 [mm]
         self.min_y = 0.0    # ステージの最小Y座標 [mm]
 

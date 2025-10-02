@@ -4,11 +4,11 @@ camera:
   resolution_height: 1080    # 解像度（高さ）
   frame_rate: 10            # フレームレート
   image_size:
-    x5: [0.10, 0.80]     # 5x倍率時の撮影範囲 (mm)
-    x10: [0.50, 0.40]     # 10x倍率時の撮影範囲 (mm)
-    x20: [0.25, 0.20]     # 20x倍率時の撮影範囲 (mm)
-    x50: [0.10, 0.08]     # 50x倍率時の撮影範囲 (mm)
-    x100: [0.05, 0.04]    # 100x倍率時の撮影範囲 (mm)
+    x5: [200, 200]     # 5x倍率時の撮影範囲 (mm)
+    x10: [10, 10]     # 10x倍率時の撮影範囲 (mm)
+    x20: [5, 5]     # 20x倍率時の撮影範囲 (mm)
+    x50: [0.4, 0.4]     # 50x倍率時の撮影範囲 (mm)
+    x100: [0.2, 0.2]    # 100x倍率時の撮影範囲 (mm)
 
 # ステージ設定
 stage:
@@ -25,7 +25,7 @@ stage:
 
 # スティッチング設定
 stitching:
-  type: "grid"              # スティッチングタイプ (grid/advanced)
+  type: "simple"              # スティッチングタイプ (simple/advanced)
   overlap_ratio: 0.1        # 画像重複率 (0.0-0.5)
   max_images: 100           # 最大画像数
   image_format: "PNG"       # 保存形式 (PNG/JPEG/TIFF)

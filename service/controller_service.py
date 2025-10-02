@@ -76,6 +76,9 @@ class MockControllerService:
             y += current_pos[1]
         return (test_env.min_x <= x <= test_env.max_x) and (test_env.min_y <= y <= test_env.max_y)
 
+    def go_to_origin(self):
+        test_env.move_to(0, 0, is_relative=False)
+
 
 class ControllerService:
     def __init__(self, config: Dict[str, Any]):

@@ -1,8 +1,7 @@
 from typing import Dict, Any, List, Tuple
 from datetime import datetime
 from application.event_bus import event_bus, ErrorEvent, StitchingProgressEvent, ImageCaptureEvent
-from enums.stage import CornerPosition
-from enums.camera import CameraMagnitude
+from enums.enums import CornerPosition, CameraMagnitude, ProgressStatus
 
 
 class StitchingController:
@@ -20,6 +19,17 @@ class StitchingController:
     def stop(self):
         self.is_active = False
 
+    def _publish_error(self, error_message: str, progress_message: str = None):
+        """Publish error event and failed progress event"""
+        error_event = ErrorEvent(error_message=error_message)
+        event_bus.publish(error_event)
+
+        progress_event = StitchingProgressEvent(
+            progress_message=progress_message or "Operation failed",
+            status=ProgressStatus.FAILED
+        )
+        event_bus.publish(progress_event)
+
     def stitching(self, grid_size_x: int, grid_size_y: int, magnitude: CameraMagnitude, corner: CornerPosition):
         """
         スティッチングを行うおおもとの関数
@@ -27,50 +37,62 @@ class StitchingController:
         param grid_size_y: y方向の撮影枚数
         param magnitude: 顕微鏡の倍率
         param corner: スティッチングの開始位置
+
+        return success_flag: bool
         """
         if not self.is_active:
-            return
+            return False
 
         try:
             # ステータス更新: スティッチング開始
-            progress_event = StitchingProgressEvent(progress_message="Stitching started")
+            progress_event = StitchingProgressEvent(
+                progress_message="Stitching started",
+                status=ProgressStatus.IN_PROGRESS
+            )
             event_bus.publish(progress_event)
 
             # 軌跡生成
             trajectory = self.generate_trajectory(grid_size_x, grid_size_y, magnitude, corner)
+            print(f"Generated trajectory: {trajectory}")
             if len(trajectory) == 0:
-                error_event = ErrorEvent(error_message="Failed to generate trajectory. It may exceed movement limits.")
-                event_bus.publish(error_event)
-                return
+                self._publish_error(
+                    "Failed to generate trajectory. It may exceed movement limits.",
+                    "Trajectory generation failed"
+                )
+                return False
 
             # 移動と撮影
             images = self.move_and_capture(trajectory)
             if not images:
-                error_event = ErrorEvent(error_message="Failed to capture images.")
-                event_bus.publish(error_event)
-                return
+                self._publish_error("Failed to capture images.", "Image capture failed")
+                return False
 
             # 画像結合
-            stitched_image = self.concatenate_images(images)
+            stitched_image = self.concatenate_images(images, grid_size_x, grid_size_y)
+
             if stitched_image is None:
-                error_event = ErrorEvent(error_message="Failed to stitch images.")
-                event_bus.publish(error_event)
-                return
+                self._publish_error("Failed to stitch images.", "Image stitching failed")
+                return False
 
             # 結合画像のイベント発行
             image_event = ImageCaptureEvent(
                 image_data=stitched_image,
-                timestamp=datetime.now()
+                timestamp=datetime.now(),
+                is_stitched_image=True,
             )
             event_bus.publish(image_event)
 
             # ステータス更新: スティッチング完了
-            progress_event = StitchingProgressEvent(progress_message="Stitching completed")
+            progress_event = StitchingProgressEvent(
+                progress_message="Stitching completed",
+                status=ProgressStatus.COMPLETED,
+            )
             event_bus.publish(progress_event)
 
+            return True
         except Exception as e:
-            error_event = ErrorEvent(error_message=f"Error occurred during stitching: {str(e)}")
-            event_bus.publish(error_event)
+            self._publish_error(f"Error occurred during stitching: {str(e)}", "Stitching failed")
+            return False
 
     def generate_trajectory(self, grid_size_x: int, grid_size_y: int, magnitude: CameraMagnitude, corner: CornerPosition) -> List[Tuple[float, float]]:
         """
@@ -112,8 +134,6 @@ class StitchingController:
                 start_x = current_pos[0]
                 start_y = current_pos[1]
 
-            print(f"start:{start_x}, {start_y}")
-            print(f"total_move:{total_move_x}, {total_move_y}")
             # 移動が範囲内かチェック
             # 開始位置とその対角の頂点が範囲内であることを確認
             if not self.controller_service.is_valid_movement(start_x, start_y, is_relative=True):
@@ -127,18 +147,20 @@ class StitchingController:
                     for x in range(grid_size_x):
                         rel_x = x * step_size_x
                         rel_y = y * step_size_y
-                        trajectory.append((rel_x, rel_y))
+                        trajectory.append((rel_x + start_x, rel_y + start_y))
                 else:  # 奇数行は右から左
                     for x in range(grid_size_x - 1, -1, -1):
                         rel_x = x * step_size_x
                         rel_y = y * step_size_y
-                        trajectory.append((rel_x, rel_y))
+                        trajectory.append((rel_x + start_x, rel_y + start_y))
 
             return trajectory
 
         except Exception as e:
-            error_event = ErrorEvent(error_message=f"Error occurred during trajectory generation: {str(e)}")
-            event_bus.publish(error_event)
+            self._publish_error(
+                f"Error occurred during trajectory generation: {str(e)}",
+                "Trajectory generation failed"
+            )
             return []
 
     def move_and_capture(self, trajectory: List[Tuple[float, float]]) -> List[Any]:
@@ -146,26 +168,13 @@ class StitchingController:
         images = []
 
         try:
-            for i, (rel_x, rel_y) in enumerate(trajectory):
+            for i, (target_x, target_y) in enumerate(trajectory):
                 # Progress report
                 progress_msg = f"Moving to position {i+1}/{len(trajectory)}..."
                 progress_event = StitchingProgressEvent(progress_message=progress_msg)
                 event_bus.publish(progress_event)
 
-                # 最初の位置以外は相対移動
-                is_relative = i > 0
-                if i == 0:
-                    # 最初の位置は現在位置からの相対移動
-                    current_pos = self.controller_service.get_current_position()
-                    target_x = current_pos[0] + rel_x
-                    target_y = current_pos[1] + rel_y
-                    self.controller_service.move_to(target_x, target_y, is_relative=False)
-                else:
-                    # 前の位置からの相対移動
-                    prev_x, prev_y = trajectory[i-1]
-                    delta_x = rel_x - prev_x
-                    delta_y = rel_y - prev_y
-                    self.controller_service.move_to(delta_x, delta_y, is_relative=True)
+                self.controller_service.move_to(target_x, target_y, is_relative=False)
 
                 # 移動完了を待つ
                 self._wait_for_movement_completion()
@@ -177,8 +186,10 @@ class StitchingController:
 
                 image_data = self.image_service.capture()
                 if image_data is None:
-                    error_event = ErrorEvent(error_message=f"Failed to capture image at position {i+1}")
-                    event_bus.publish(error_event)
+                    self._publish_error(
+                        f"Failed to capture image at position {i+1}",
+                        f"Capture failed at position {i+1}/{len(trajectory)}"
+                    )
                     return []
 
                 images.append(image_data)
@@ -186,8 +197,10 @@ class StitchingController:
             return images
 
         except Exception as e:
-            error_event = ErrorEvent(error_message=f"Error occurred during movement and capture: {str(e)}")
-            event_bus.publish(error_event)
+            self._publish_error(
+                f"Error occurred during movement and capture: {str(e)}",
+                "Movement and capture failed"
+            )
             return []
 
     def _wait_for_movement_completion(self):
@@ -196,16 +209,14 @@ class StitchingController:
         while self.controller_service.is_moving():
             time.sleep(0.1)
 
-    def concatenate_images(self, images: List[Any]) -> Any:
+    def concatenate_images(self, images: List[Any], grid_size_x: int, grid_size_y: int) -> Any:
         """image_process_serviceを呼び出し、画像を結合する"""
         try:
             progress_event = StitchingProgressEvent(progress_message="Stitching images...")
             event_bus.publish(progress_event)
 
             # 画像結合パラメータを設定から取得
-            stitching_type = self.config.get("stitching", {}).get("type", "grid")
-            grid_size_x = self.config.get("stitching", {}).get("grid_size_x", 3)
-            grid_size_y = self.config.get("stitching", {}).get("grid_size_y", 3)
+            stitching_type = self.config["stitching"]["type"]
 
             # image_process_serviceで画像結合
             stitched_image = self.image_process_service.concatenate(
@@ -218,6 +229,5 @@ class StitchingController:
             return stitched_image
 
         except Exception as e:
-            error_event = ErrorEvent(error_message=f"Error occurred during stitching: {str(e)}")
-            event_bus.publish(error_event)
+            self._publish_error(f"Error occurred during stitching: {str(e)}", "Image stitching failed")
             return None

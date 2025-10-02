@@ -1,9 +1,8 @@
-from enums.stage import CornerPosition
-from utils import config_loader
 import time
 import tkinter as tk
 import threading
 
+from utils import config_loader
 from service.file_service import FileService
 from service.image_service import create_image_service
 from service.controller_service import create_controller_service
@@ -13,8 +12,7 @@ from application.manual_controller import ManualController
 from application.stitching_controller import StitchingController
 from application.event_bus import event_bus
 from mock.test_env import test_env
-from enums.camera import CameraMagnitude
-from enums.stage import CornerPosition
+from enums.enums import CameraMagnitude, CornerPosition
 
 
 def stitching_test():
@@ -76,7 +74,7 @@ def main():
             except Exception as e:
                 print(f"Error in test_env.update: {e}")
             time.sleep(0.05)
-    
+
     # Start the update thread as daemon
     update_thread = threading.Thread(target=update_test_env, daemon=True)
     update_thread.start()
