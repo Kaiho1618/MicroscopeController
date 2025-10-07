@@ -126,7 +126,7 @@ class ControllerService:
 
     def _check_ready(self) -> bool:
         """コントローラがReady状態かチェック"""
-        self._send_command('!')
+        self._send_command('!:')
         response = self._read_response()
         return 'R' in response
 
@@ -180,9 +180,9 @@ class ControllerService:
         return False
 
     def _wait_until_ready(self, poll_interval: float = 0.1):
-        """ステージが停止するまで待機（!コマンドでポーリング）"""
+        """ステージが停止するまで待機（!:コマンドでポーリング）"""
         while True:
-            self._send_command('!')
+            self._send_command('!:')
             response = self._read_response()
             if 'R' in response:  # Ready
                 break
@@ -222,7 +222,7 @@ class ControllerService:
 
     def is_moving(self) -> bool:
         """移動中かどうかを確認"""
-        self._send_command('!')
+        self._send_command('!:')
         response = self._read_response()
         return 'B' in response  # Busy
 
@@ -255,8 +255,9 @@ class ControllerService:
             # Extract coordinates and convert to mm
             parts = response.split(',')
             if len(parts) >= 2:
-                x_pulses = int(parts[0].strip())
-                y_pulses = int(parts[1].strip())
+                # Remove all spaces (including internal ones) before converting to int
+                x_pulses = int(parts[0].replace(' ', ''))
+                y_pulses = int(parts[1].replace(' ', ''))
                 pulses_per_mm = self.config["stage"]["pulses_per_mm"]
                 return (x_pulses / pulses_per_mm, y_pulses / pulses_per_mm)
             return (0.0, 0.0)
