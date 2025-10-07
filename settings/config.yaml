@@ -4,8 +4,8 @@ camera:
   resolution_height: 1080    # 解像度（高さ）
   frame_rate: 10            # フレームレート
   image_size:
-    x5: [200, 200]     # 5x倍率時の撮影範囲 (mm)
-    x10: [10, 10]     # 10x倍率時の撮影範囲 (mm)
+    x5: [1, 0.5625]     # 5x倍率時の撮影範囲 (mm)
+    x10: [1, 0.5625]     # 10x倍率時の撮影範囲 (mm)
     x20: [5, 5]     # 20x倍率時の撮影範囲 (mm)
     x50: [0.4, 0.4]     # 50x倍率時の撮影範囲 (mm)
     x100: [0.2, 0.2]    # 100x倍率時の撮影範囲 (mm)
@@ -53,7 +53,7 @@ gui:
   show_scale_bar: true      # スケールバー表示
 
 # アプリケーション設定
-mock: true
+mock: false
 log_level: "INFO"           # ログレベル (DEBUG/INFO/WARNING/ERROR)
 data_directory: "data"      # データ保存ディレクトリ
 backup_directory: "backup" # バックアップディレクトリ

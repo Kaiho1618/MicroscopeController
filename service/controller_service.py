@@ -231,6 +231,11 @@ class ControllerService:
         # Ensure controller is ready before sending command
         self._ensure_ready()
 
+        if not is_relative:
+            current_pos = self.get_current_position()
+            x -= current_pos[0]
+            y -= current_pos[1]
+
         x_pulses = self._mm_to_pulses(x)
         y_pulses = self._mm_to_pulses(y)
 
