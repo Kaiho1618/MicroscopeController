@@ -146,12 +146,12 @@ class StitchingController:
                 if y % 2 == 0:  # 偶数行は左から右
                     for x in range(grid_size_x):
                         rel_x = x * step_size_x
-                        rel_y = y * step_size_y
+                        rel_y = -y * step_size_y
                         trajectory.append((rel_x + start_x, rel_y + start_y))
                 else:  # 奇数行は右から左
                     for x in range(grid_size_x - 1, -1, -1):
                         rel_x = x * step_size_x
-                        rel_y = y * step_size_y
+                        rel_y = -y * step_size_y
                         trajectory.append((rel_x + start_x, rel_y + start_y))
 
             return trajectory
@@ -184,7 +184,7 @@ class StitchingController:
                 progress_event = StitchingProgressEvent(progress_message=progress_msg)
                 event_bus.publish(progress_event)
 
-                image_data = self.image_service.capture()
+                image_data = self.image_service.capture(refresh=True)
                 if image_data is None:
                     self._publish_error(
                         f"Failed to capture image at position {i+1}",

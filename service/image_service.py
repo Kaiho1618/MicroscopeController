@@ -62,12 +62,20 @@ class ImageService:
 
         print(f"Camera connected: {camera_config['resolution_width']}x{camera_config['resolution_height']} @ {camera_config['frame_rate']}fps")
 
-    def capture(self):
+    def capture(self, refresh=False):
         """画像をキャプチャ"""
         try:
             if not self.cap or not self.cap.isOpened():
                 raise RuntimeError("Camera is not connected")
 
+            # Flush the camera buffer by reading and discarding several frames
+            # This ensures we get the latest frame, not a buffered old frame
+            if refresh:
+                num_frames_to_flush = 5
+                for _ in range(num_frames_to_flush):
+                    self.cap.grab()
+
+            # Now read the actual frame
             ret, frame = self.cap.read()
             if not ret:
                 raise RuntimeError("Failed to capture frame")
