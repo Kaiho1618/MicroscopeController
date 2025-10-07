@@ -22,6 +22,10 @@ stage:
   default_speed: 10.0       # デフォルト移動速度
   max_speed: 100.0          # 最大移動速度
   step_size: 0.1            # 最小移動単位
+  pulses_per_mm: 1000       # パルス/mm変換係数（要調整）
+  speed_slow: 500           # S速度（PPS）
+  speed_fast: 5000          # F速度（PPS）
+  speed_accel_time: 200     # R加減速時間（ms）
 
 # スティッチング設定
 stitching:
