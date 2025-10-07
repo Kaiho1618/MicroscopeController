@@ -93,16 +93,27 @@ class ControllerService:
     def connect(self):
         """GSC-02コントローラへのシリアル接続を確立"""
         stage_config = self.config["stage"]
-        self.ser = serial.Serial(
-            port=stage_config["com_port"],
-            baudrate=stage_config["baud_rate"],
-            bytesize=serial.EIGHTBITS,
-            parity=serial.PARITY_NONE,
-            stopbits=serial.STOPBITS_ONE,
-            timeout=stage_config["timeout"],
-            rtscts=True  # Hardware flow control
-        )
-        print(f"Connected to {stage_config['com_port']}")
+        try:
+            self.ser = serial.Serial(
+                port=stage_config["com_port"],
+                baudrate=stage_config["baud_rate"],
+                bytesize=serial.EIGHTBITS,
+                parity=serial.PARITY_NONE,
+                stopbits=serial.STOPBITS_ONE,
+                timeout=stage_config["timeout"],
+                rtscts=True  # Hardware flow control
+            )
+            print(f"Connected to {stage_config['com_port']}")
+        except serial.SerialException as e:
+            error_msg = f"Failed to connect to controller on {stage_config['com_port']}: {str(e)}"
+            error_event = ErrorEvent(error_message=error_msg)
+            event_bus.publish(error_event)
+            raise RuntimeError(error_msg) from e
+        except Exception as e:
+            error_msg = f"Unexpected error connecting to controller: {str(e)}"
+            error_event = ErrorEvent(error_message=error_msg)
+            event_bus.publish(error_event)
+            raise RuntimeError(error_msg) from e
 
     def _send_command(self, command: str):
         """コマンドを送信"""
