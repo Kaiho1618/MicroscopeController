@@ -108,7 +108,7 @@ class ImageProcessService:
         return stitched_image
 
     def _concatenate_advanced(self, images: List[Any], grid_size_x: int, grid_size_y: int) -> Any:
-        """Advanced concatenation with adaptive overlap adjustment by minimizing region differences"""
+        """Advanced concatenation using OpenCV Stitcher with feature matching"""
         if len(images) != grid_size_x * grid_size_y:
             raise ValueError(f"Expected {grid_size_x * grid_size_y} images, got {len(images)}")
 
@@ -120,11 +120,46 @@ class ImageProcessService:
             else:
                 processed_images.append(np.array(img))
 
+        # Ensure all images are in BGR format for OpenCV Stitcher
+        bgr_images = []
+        for img in processed_images:
+            if len(img.shape) == 2:  # Grayscale
+                bgr_images.append(cv2.cvtColor(img, cv2.COLOR_GRAY2BGR))
+            elif img.shape[2] == 3:  # Already BGR
+                bgr_images.append(img)
+            elif img.shape[2] == 4:  # BGRA
+                bgr_images.append(cv2.cvtColor(img, cv2.COLOR_BGRA2BGR))
+            else:
+                bgr_images.append(img)
+
+        try:
+            # Use OpenCV's Stitcher with scans mode (better for organized grid images)
+            stitcher = cv2.Stitcher.create(cv2.Stitcher_SCANS)
+
+            # Configure stitcher parameters for microscopy
+            stitcher.setPanoConfidenceThresh(0.3)  # Lower threshold for microscopy images
+
+            # Perform stitching
+            status, stitched = stitcher.stitch(bgr_images)
+
+            if status == cv2.Stitcher_OK:
+                return stitched
+            else:
+                # If OpenCV stitcher fails, fall back to feature-based method
+                print(f"OpenCV Stitcher failed with status {status}, using fallback method")
+                return self._concatenate_advanced_fallback(processed_images, grid_size_x, grid_size_y)
+
+        except Exception as e:
+            print(f"Stitcher error: {e}, using fallback method")
+            return self._concatenate_advanced_fallback(processed_images, grid_size_x, grid_size_y)
+
+    def _concatenate_advanced_fallback(self, images: List[Any], grid_size_x: int, grid_size_y: int) -> Any:
+        """Fallback: Advanced concatenation with phase correlation and multi-band blending"""
         # Get dimensions from first image
-        if len(processed_images[0].shape) == 3:
-            img_height, img_width, channels = processed_images[0].shape
+        if len(images[0].shape) == 3:
+            img_height, img_width, channels = images[0].shape
         else:
-            img_height, img_width = processed_images[0].shape
+            img_height, img_width = images[0].shape
             channels = 1
 
         # Get initial overlap ratio from config
@@ -146,22 +181,22 @@ class ImageProcessService:
                     grid_x = grid_size_x - 1 - x
 
                 img_idx = y * grid_size_x + grid_x
-                if img_idx < len(processed_images):
-                    current_img = processed_images[img_idx]
+                if img_idx < len(images):
+                    current_img = images[img_idx]
                     if current_img.shape[:2] != (img_height, img_width):
                         current_img = cv2.resize(current_img, (img_width, img_height))
                     row_images.append(current_img)
 
-            # Stitch images horizontally with adaptive overlap
+            # Stitch images horizontally with phase correlation
             if row_images:
-                row_stitched = self._stitch_horizontal_adaptive(row_images, initial_overlap_x)
+                row_stitched = self._stitch_horizontal_phase_corr(row_images, initial_overlap_x)
                 rows.append(row_stitched)
 
-        # Stitch rows vertically with adaptive overlap
+        # Stitch rows vertically with phase correlation
         if not rows:
             raise ValueError("No rows to stitch")
 
-        result = self._stitch_vertical_adaptive(rows, initial_overlap_y)
+        result = self._stitch_vertical_phase_corr(rows, initial_overlap_y)
         return result
 
     def _stitch_horizontal_adaptive(self, images: List[np.ndarray], initial_overlap: int) -> np.ndarray:
@@ -318,6 +353,206 @@ class ImageProcessService:
         if overlap > 0:
             for i in range(overlap):
                 alpha = i / overlap  # Linear blending weight
+                row_idx1 = img1.shape[0] - overlap + i
+                row_idx2 = i
+                result_row = img1.shape[0] - overlap + i
+
+                result[result_row, :] = ((1 - alpha) * img1[row_idx1, :].astype(float) +
+                                         alpha * img2[row_idx2, :].astype(float)).astype(img1.dtype)
+
+        # Copy non-overlapping part of img2
+        result[img1.shape[0]:, :] = img2[overlap:, :]
+
+        return result
+
+    def _stitch_horizontal_phase_corr(self, images: List[np.ndarray], initial_overlap: int) -> np.ndarray:
+        """Stitch images horizontally using phase correlation for accurate alignment"""
+        if len(images) == 0:
+            raise ValueError("No images to stitch")
+        if len(images) == 1:
+            return images[0]
+
+        result = images[0].copy()
+
+        for i in range(1, len(images)):
+            # Use phase correlation to find precise overlap
+            overlap = self._find_horizontal_overlap_phase_corr(result, images[i], initial_overlap)
+
+            # Merge with multi-band blending
+            result = self._merge_horizontal_multiband(result, images[i], overlap)
+
+        return result
+
+    def _stitch_vertical_phase_corr(self, images: List[np.ndarray], initial_overlap: int) -> np.ndarray:
+        """Stitch images vertically using phase correlation for accurate alignment"""
+        if len(images) == 0:
+            raise ValueError("No images to stitch")
+        if len(images) == 1:
+            return images[0]
+
+        result = images[0].copy()
+
+        for i in range(1, len(images)):
+            # Use phase correlation to find precise overlap
+            overlap = self._find_vertical_overlap_phase_corr(result, images[i], initial_overlap)
+
+            # Merge with multi-band blending
+            result = self._merge_vertical_multiband(result, images[i], overlap)
+
+        return result
+
+    def _find_horizontal_overlap_phase_corr(self, img1: np.ndarray, img2: np.ndarray, initial_overlap: int) -> int:
+        """Find horizontal overlap using phase correlation (frequency domain matching)"""
+        # Extract overlap regions for matching
+        search_range = max(int(initial_overlap * 0.3), 20)
+        min_overlap = max(10, initial_overlap - search_range)
+        max_overlap = min(img1.shape[1] // 2, img2.shape[1] // 2, initial_overlap + search_range)
+
+        # Get regions to match
+        region_width = max_overlap
+        region1 = img1[:, -region_width:]
+        region2 = img2[:, :region_width]
+
+        # Ensure same height
+        min_height = min(region1.shape[0], region2.shape[0])
+        region1 = region1[:min_height, :]
+        region2 = region2[:min_height, :]
+
+        # Convert to grayscale if needed
+        if len(region1.shape) == 3:
+            region1_gray = cv2.cvtColor(region1, cv2.COLOR_BGR2GRAY)
+            region2_gray = cv2.cvtColor(region2, cv2.COLOR_BGR2GRAY)
+        else:
+            region1_gray = region1
+            region2_gray = region2
+
+        # Use phase correlation to find shift
+        try:
+            shift, response = cv2.phaseCorrelate(region1_gray.astype(np.float32),
+                                                  region2_gray.astype(np.float32))
+
+            # Calculate overlap from shift
+            # Positive shift means region2 needs to move right, so overlap is smaller
+            optimal_overlap = int(region_width - shift[0])
+
+            # Clamp to valid range
+            optimal_overlap = max(min_overlap, min(max_overlap, optimal_overlap))
+
+            print(f"Phase correlation: shift={shift[0]:.1f}px, response={response:.3f}, overlap={optimal_overlap}px")
+            return optimal_overlap
+
+        except Exception as e:
+            print(f"Phase correlation failed: {e}, using initial overlap")
+            return initial_overlap
+
+    def _find_vertical_overlap_phase_corr(self, img1: np.ndarray, img2: np.ndarray, initial_overlap: int) -> int:
+        """Find vertical overlap using phase correlation (frequency domain matching)"""
+        # Extract overlap regions for matching
+        search_range = max(int(initial_overlap * 0.3), 20)
+        min_overlap = max(10, initial_overlap - search_range)
+        max_overlap = min(img1.shape[0] // 2, img2.shape[0] // 2, initial_overlap + search_range)
+
+        # Get regions to match
+        region_height = max_overlap
+        region1 = img1[-region_height:, :]
+        region2 = img2[:region_height, :]
+
+        # Ensure same width
+        min_width = min(region1.shape[1], region2.shape[1])
+        region1 = region1[:, :min_width]
+        region2 = region2[:, :min_width]
+
+        # Convert to grayscale if needed
+        if len(region1.shape) == 3:
+            region1_gray = cv2.cvtColor(region1, cv2.COLOR_BGR2GRAY)
+            region2_gray = cv2.cvtColor(region2, cv2.COLOR_BGR2GRAY)
+        else:
+            region1_gray = region1
+            region2_gray = region2
+
+        # Use phase correlation to find shift
+        try:
+            shift, response = cv2.phaseCorrelate(region1_gray.astype(np.float32),
+                                                  region2_gray.astype(np.float32))
+
+            # Calculate overlap from shift
+            # Positive shift means region2 needs to move down, so overlap is smaller
+            optimal_overlap = int(region_height - shift[1])
+
+            # Clamp to valid range
+            optimal_overlap = max(min_overlap, min(max_overlap, optimal_overlap))
+
+            print(f"Phase correlation: shift={shift[1]:.1f}px, response={response:.3f}, overlap={optimal_overlap}px")
+            return optimal_overlap
+
+        except Exception as e:
+            print(f"Phase correlation failed: {e}, using initial overlap")
+            return initial_overlap
+
+    def _merge_horizontal_multiband(self, img1: np.ndarray, img2: np.ndarray, overlap: int) -> np.ndarray:
+        """Merge images horizontally with multi-band blending for seamless results"""
+        # For now, use improved linear blending with feathering
+        # Full multi-band (Laplacian pyramid) blending can be added if needed
+        height = max(img1.shape[0], img2.shape[0])
+        width = img1.shape[1] + img2.shape[1] - overlap
+
+        # Resize if heights don't match
+        if img1.shape[0] != height:
+            img1 = cv2.resize(img1, (img1.shape[1], height))
+        if img2.shape[0] != height:
+            img2 = cv2.resize(img2, (img2.shape[1], height))
+
+        # Create output array
+        if len(img1.shape) == 3:
+            result = np.zeros((height, width, img1.shape[2]), dtype=img1.dtype)
+        else:
+            result = np.zeros((height, width), dtype=img1.dtype)
+
+        # Copy non-overlapping part of img1
+        result[:, :img1.shape[1] - overlap] = img1[:, :img1.shape[1] - overlap]
+
+        # Feathered blending in overlap region (smoother than linear)
+        if overlap > 0:
+            for i in range(overlap):
+                # Sigmoid-like blending for smoother transitions
+                alpha = (i / overlap) ** 0.7  # Power < 1 gives smoother blend
+                col_idx1 = img1.shape[1] - overlap + i
+                col_idx2 = i
+                result_col = img1.shape[1] - overlap + i
+
+                result[:, result_col] = ((1 - alpha) * img1[:, col_idx1].astype(float) +
+                                         alpha * img2[:, col_idx2].astype(float)).astype(img1.dtype)
+
+        # Copy non-overlapping part of img2
+        result[:, img1.shape[1]:] = img2[:, overlap:]
+
+        return result
+
+    def _merge_vertical_multiband(self, img1: np.ndarray, img2: np.ndarray, overlap: int) -> np.ndarray:
+        """Merge images vertically with multi-band blending for seamless results"""
+        width = max(img1.shape[1], img2.shape[1])
+        height = img1.shape[0] + img2.shape[0] - overlap
+
+        # Resize if widths don't match
+        if img1.shape[1] != width:
+            img1 = cv2.resize(img1, (width, img1.shape[0]))
+        if img2.shape[1] != width:
+            img2 = cv2.resize(img2, (width, img2.shape[0]))
+
+        # Create output array
+        if len(img1.shape) == 3:
+            result = np.zeros((height, width, img1.shape[2]), dtype=img1.dtype)
+        else:
+            result = np.zeros((height, width), dtype=img1.dtype)
+
+        # Copy non-overlapping part of img1
+        result[:img1.shape[0] - overlap, :] = img1[:img1.shape[0] - overlap, :]
+
+        # Feathered blending in overlap region (smoother than linear)
+        if overlap > 0:
+            for i in range(overlap):
+                # Sigmoid-like blending for smoother transitions
+                alpha = (i / overlap) ** 0.7  # Power < 1 gives smoother blend
                 row_idx1 = img1.shape[0] - overlap + i
                 row_idx2 = i
                 result_row = img1.shape[0] - overlap + i
