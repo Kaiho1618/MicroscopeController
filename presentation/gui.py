@@ -548,7 +548,7 @@ class MicroscopeGUI:
     def on_position_update(self, event: PositionUpdateEvent):
         """Handle position update event"""
         # Update the current position label
-        self.current_pos_label.configure(text=f"X: {event.x:.2f} mm, Y: {event.y:.2f} mm")
+        self.current_pos_label.configure(text=f"X: {event.x:.3f} mm, Y: {event.y:.3f} mm")
 
     def start_position_updates(self):
         """Start periodic position updates every 1 second"""

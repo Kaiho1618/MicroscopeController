@@ -179,9 +179,6 @@ class StitchingController:
 
                 self.controller_service.move_to(target_x, target_y, is_relative=False)
 
-                # 移動完了を待つ
-                self._wait_for_movement_completion()
-
                 # 画像撮影
                 progress_msg = f"Capturing image at position {i+1}/{len(trajectory)}..."
                 progress_event = StitchingProgressEvent(progress_message=progress_msg)
@@ -205,12 +202,6 @@ class StitchingController:
                 "Movement and capture failed"
             )
             return []
-
-    def _wait_for_movement_completion(self):
-        """移動完了を待つ"""
-        time.sleep(1)
-        while self.controller_service.is_moving():
-            time.sleep(0.1)
 
     def concatenate_images(self, images: List[Any], grid_size_x: int, grid_size_y: int) -> Any:
         """image_process_serviceを呼び出し、画像を結合する"""

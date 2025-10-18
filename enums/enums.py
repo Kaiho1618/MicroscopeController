@@ -35,3 +35,4 @@ class SpeedLevel(Enum):
     S3 = "s3"
     S4 = "s4"
     S5 = "s5"
+    S6 = "s6"
