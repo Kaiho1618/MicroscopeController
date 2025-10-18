@@ -86,6 +86,8 @@ class MicroscopeGUI:
         self.magnitude_var.trace_add('write', lambda *args: self.update_estimated_size())
         self.update_estimated_size()  # Initial calculation
 
+        self.displayed_image = None
+
     def setup_gui(self):
         # Main frame with less padding
         main_frame = ttk.Frame(self.root, padding="5")
@@ -203,7 +205,7 @@ class MicroscopeGUI:
         image_frame = ttk.LabelFrame(left_panel, text="Image Controls", padding="5")
         image_frame.grid(row=4, column=0, sticky=(tk.W, tk.E), pady=(0, 5))
 
-        ttk.Button(image_frame, text="Save Current Image", command=self.capture_image).grid(row=0, column=0, padx=(0, 5))
+        ttk.Button(image_frame, text="Save Current Image", command=self.save_image).grid(row=0, column=0, padx=(0, 5))
 
         # Auto capture controls
         self.auto_capture_button = ttk.Button(image_frame, text="Start Auto Capture", command=self.toggle_auto_capture)
@@ -396,8 +398,8 @@ class MicroscopeGUI:
         if not isinstance(event.widget, ttk.Entry):
             self.root.focus_set()
 
-    def capture_image(self):
-        """Capture image"""
+    def save_image(self):
+        """Save image"""
         # Open file dialog to select save path, starting from last saved directory
         initial_dir = self.last_save_directory if self.last_save_directory else os.path.expanduser("~")
         file_path = filedialog.asksaveasfilename(
@@ -415,12 +417,10 @@ class MicroscopeGUI:
             self.log_event("Image capture cancelled by user")
             return
 
-        # Capture image using manual controller
-        result = self.manual_controller.capture_image()
-        if result is not None:
+        if self.displayed_image is not None:
             try:
                 # Save image using image service
-                self.file_service.save_image(result, file_path)
+                self.file_service.save_image(self.displayed_image, file_path)
                 # Remember the directory for next time
                 self.last_save_directory = os.path.dirname(file_path)
                 self.log_event(f"Image captured and saved to: {file_path}")
@@ -428,7 +428,7 @@ class MicroscopeGUI:
                 self.log_event(f"Failed to save image: {str(e)}")
                 messagebox.showerror("Save Error", f"Failed to save image: {str(e)}")
         else:
-            self.log_event("Image capture failed")
+            self.log_event("Save image failed. No image to save.")
 
     def toggle_auto_capture(self):
         """Toggle automatic image capture on/off"""
@@ -540,6 +540,8 @@ class MicroscopeGUI:
             else:
                 # Use INTER_AREA for downscaling
                 resized_image = cv2.resize(cv_image, (new_width, new_height), interpolation=cv2.INTER_AREA)
+
+            self.displayed_image = resized_image
 
             # Convert back to PIL Image for tkinter
             rgb_image = cv2.cvtColor(resized_image, cv2.COLOR_BGR2RGB)
