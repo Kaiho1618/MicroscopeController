@@ -1,6 +1,8 @@
 from typing import Dict, Any, List, Tuple
 from datetime import datetime
 import time
+import os
+import cv2
 
 
 from application.event_bus import event_bus, ErrorEvent, StitchingProgressEvent, ImageCaptureEvent
@@ -33,7 +35,7 @@ class StitchingController:
         )
         event_bus.publish(progress_event)
 
-    def stitching(self, grid_size_x: int, grid_size_y: int, magnitude: CameraMagnitude, corner: CornerPosition):
+    def stitching(self, grid_size_x: int, grid_size_y: int, magnitude: CameraMagnitude, corner: CornerPosition, save_all_images: bool = True) -> bool:
         """
         スティッチングを行うおおもとの関数
         param grid_size_x: x方向の撮影枚数
@@ -69,6 +71,10 @@ class StitchingController:
             if not images:
                 self._publish_error("Failed to capture images.", "Image capture failed")
                 return False
+
+            # 全画像保存（オプション）
+            if save_all_images:
+                self._save_all_images(images, grid_size_x, grid_size_y)
 
             # 画像結合
             stitched_image = self.concatenate_images(images, grid_size_x, grid_size_y)
@@ -225,3 +231,29 @@ class StitchingController:
         except Exception as e:
             self._publish_error(f"Error occurred during stitching: {str(e)}", "Image stitching failed")
             return None
+
+    def _save_all_images(self, images: List[Any], grid_size_x: int, grid_size_y: int) -> None:
+        """Save all captured images to a timestamped folder"""
+        # Create timestamp-based folder name
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        # Get data directory from config
+        data_dir = "data/images"
+
+        # Create folder path
+        folder_path = os.path.join(data_dir, f"stitching_{timestamp}")
+        os.makedirs(folder_path, exist_ok=True)
+
+        # Save each image
+        for i, image in enumerate(images):
+            filename = f"image_{i:03d}.png"
+            filepath = os.path.join(folder_path, filename)
+            cv2.imwrite(filepath, image)
+
+        print(f"Saved {len(images)} images to {folder_path}")
+        
+        # 縦横の撮影枚数をテキストファイルに保存
+        info_filepath = os.path.join(folder_path, "info.txt")
+        with open(info_filepath, 'w') as f:
+            f.write(f"Grid Size X: {grid_size_x}\n")
+            f.write(f"Grid Size Y: {grid_size_y}\n")

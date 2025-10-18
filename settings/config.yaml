@@ -36,7 +36,7 @@ stage:
 
 # スティッチング設定
 stitching:
-  type: "advanced"              # スティッチングタイプ (simple/advanced)
+  type: "simple"              # スティッチングタイプ (simple/advanced)
   overlap_ratio: 0.1        # 画像重複率 (0.0-0.5)
   max_images: 100           # 最大画像数
   image_format: "PNG"       # 保存形式 (PNG/JPEG/TIFF)
