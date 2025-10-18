@@ -642,6 +642,9 @@ class MicroscopeGUI:
         self.log_event(f"STITCHING: {event.progress_message}")
         self.stitching_status.configure(text=event.progress_message)
 
+        # Force GUI to update immediately
+        self.root.update_idletasks()
+
         if event.status == ProgressStatus.COMPLETED:
             self.log_event("STITCHING: Completed successfully")
             self.end_stitching()

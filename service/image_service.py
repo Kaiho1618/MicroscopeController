@@ -21,7 +21,7 @@ class MockImageService:
     def connect(self):
         test_env.connect()
 
-    def capture(self):
+    def capture(self, refresh=False):
         try:
             print("Capturing image in MockImageService...")
             test_env.display_status()
