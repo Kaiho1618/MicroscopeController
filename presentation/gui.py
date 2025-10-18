@@ -75,6 +75,12 @@ class MicroscopeGUI:
         self.position_update_timer = None
         self.start_position_updates()
 
+        # Set up automatic update of estimated size
+        self.grid_x_var.trace_add('write', lambda *args: self.update_estimated_size())
+        self.grid_y_var.trace_add('write', lambda *args: self.update_estimated_size())
+        self.magnitude_var.trace_add('write', lambda *args: self.update_estimated_size())
+        self.update_estimated_size()  # Initial calculation
+
     def setup_gui(self):
         # Main frame with less padding
         main_frame = ttk.Frame(self.root, padding="5")
@@ -161,6 +167,10 @@ class MicroscopeGUI:
         self.grid_y_var = tk.IntVar(value=3)
         ttk.Entry(stitching_frame, textvariable=self.grid_y_var, width=6).grid(row=0, column=3, padx=2)
 
+        # Estimated size display
+        self.estimated_size_label = ttk.Label(stitching_frame, text="Est. size: 0.0 x 0.0 mm", font=("Arial", 8))
+        self.estimated_size_label.grid(row=0, column=4, columnspan=2, padx=(10, 0), sticky=tk.W)
+
         # Magnification selection
         ttk.Label(stitching_frame, text="Magnitude:").grid(row=1, column=0, sticky=tk.W)
         self.magnitude_var = tk.StringVar(value=CameraMagnitude.MAG_10X.value)
@@ -188,7 +198,7 @@ class MicroscopeGUI:
         image_frame = ttk.LabelFrame(left_panel, text="Image Controls", padding="5")
         image_frame.grid(row=4, column=0, sticky=(tk.W, tk.E), pady=(0, 5))
 
-        ttk.Button(image_frame, text="Capture Image", command=self.capture_image).grid(row=0, column=0, padx=(0, 5))
+        ttk.Button(image_frame, text="Save Current Image", command=self.capture_image).grid(row=0, column=0, padx=(0, 5))
 
         # Auto capture controls
         self.auto_capture_button = ttk.Button(image_frame, text="Start Auto Capture", command=self.toggle_auto_capture)
@@ -712,6 +722,28 @@ class MicroscopeGUI:
 
         except Exception as e:
             print(f"Failed to load settings: {e}")
+
+    def update_estimated_size(self):
+        """Calculate and update the estimated stitched image size"""
+        try:
+            grid_x = self.grid_x_var.get()
+            grid_y = self.grid_y_var.get()
+            magnitude_str = self.magnitude_var.get()
+            overlap_ratio = self.config["stitching"]["overlap_ratio"]
+
+            # Get image size for current magnitude
+            image_size = self.config["camera"]["image_size"].get(magnitude_str, [0, 0])
+
+            # Calculate estimated size using the formula:
+            # size = image_size * (grid * (1 - overlap_ratio) + overlap_ratio)
+            est_width = image_size[0] * (grid_x * (1 - overlap_ratio) + overlap_ratio)
+            est_height = image_size[1] * (grid_y * (1 - overlap_ratio) + overlap_ratio)
+
+            # Update the label
+            self.estimated_size_label.configure(text=f"Est. size: {est_width:.1f} x {est_height:.1f} mm")
+        except Exception as e:
+            # If there's an error (e.g., invalid values), show default
+            self.estimated_size_label.configure(text="Est. size: N/A")
 
 
 def main():
