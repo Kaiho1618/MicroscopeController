@@ -167,7 +167,7 @@ class ImageProcessService:
         return result
 
     def _stitch_horizontal_simple(self, images: List[np.ndarray], overlap: int) -> np.ndarray:
-        """Stitch images horizontally with feathered blending using fixed overlap"""
+        """Stitch images horizontally with alignment correction within overlap margin"""
         if len(images) == 0:
             raise ValueError("No images to stitch")
         if len(images) == 1:
@@ -176,13 +176,17 @@ class ImageProcessService:
         result = images[0].copy()
 
         for i in range(1, len(images)):
-            # Merge with feathered blending using configured overlap
-            result = self._merge_horizontal_multiband(result, images[i], overlap)
+            # Find optimal shift within the overlap region
+            shift_x, shift_y = self._find_optimal_shift_horizontal(result, images[i], overlap)
+            print(f"Image {i}: horizontal shift = ({shift_x}, {shift_y})px")
+
+            # Apply shift and merge
+            result = self._merge_horizontal_with_shift(result, images[i], overlap, shift_x, shift_y)
 
         return result
 
     def _stitch_vertical_simple(self, images: List[np.ndarray], overlap: int) -> np.ndarray:
-        """Stitch images vertically with feathered blending using fixed overlap"""
+        """Stitch images vertically with alignment correction within overlap margin"""
         if len(images) == 0:
             raise ValueError("No images to stitch")
         if len(images) == 1:
@@ -191,8 +195,273 @@ class ImageProcessService:
         result = images[0].copy()
 
         for i in range(1, len(images)):
-            # Merge with feathered blending using configured overlap
-            result = self._merge_vertical_multiband(result, images[i], overlap)
+            # Find optimal shift within the overlap region
+            shift_x, shift_y = self._find_optimal_shift_vertical(result, images[i], overlap)
+            print(f"Row {i}: vertical shift = ({shift_x}, {shift_y})px")
+
+            # Apply shift and merge
+            result = self._merge_vertical_with_shift(result, images[i], overlap, shift_x, shift_y)
+
+        return result
+
+    def _find_optimal_shift_horizontal(self, img1: np.ndarray, img2: np.ndarray, overlap: int) -> tuple:
+        """
+        Find optimal shift (dx, dy) to align overlapping regions horizontally.
+        Searches within the overlap region to minimize pixel differences.
+        """
+        # Extract overlap regions
+        region1 = img1[:, -overlap:]  # Right edge of img1
+        region2 = img2[:, :overlap]   # Left edge of img2
+
+        # Match heights
+        min_height = min(region1.shape[0], region2.shape[0])
+        region1 = region1[:min_height, :]
+        region2 = region2[:min_height, :]
+
+        # Convert to grayscale for matching if needed
+        if len(region1.shape) == 3:
+            region1_gray = cv2.cvtColor(region1, cv2.COLOR_BGR2GRAY)
+            region2_gray = cv2.cvtColor(region2, cv2.COLOR_BGR2GRAY)
+        else:
+            region1_gray = region1
+            region2_gray = region2
+
+        # Search range: within the overlap region (the expected misalignment)
+        # We search ±overlap/2 in both x and y directions
+        max_shift_x = overlap // 2
+        max_shift_y = overlap // 2
+
+        best_shift = (0, 0)
+        min_diff = float('inf')
+
+        # Search for best alignment
+        for dy in range(-max_shift_y, max_shift_y + 1):
+            for dx in range(-max_shift_x, max_shift_x + 1):
+                # Calculate valid region after shift
+                if dy >= 0:
+                    r1_start_y = dy
+                    r2_start_y = 0
+                    valid_height = min(region1_gray.shape[0] - dy, region2_gray.shape[0])
+                else:
+                    r1_start_y = 0
+                    r2_start_y = -dy
+                    valid_height = min(region1_gray.shape[0], region2_gray.shape[0] + dy)
+
+                if dx >= 0:
+                    r1_start_x = dx
+                    r2_start_x = 0
+                    valid_width = min(region1_gray.shape[1] - dx, region2_gray.shape[1])
+                else:
+                    r1_start_x = 0
+                    r2_start_x = -dx
+                    valid_width = min(region1_gray.shape[1], region2_gray.shape[1] + dx)
+
+                if valid_height <= 0 or valid_width <= 0:
+                    continue
+
+                # Extract shifted regions
+                r1_shifted = region1_gray[r1_start_y:r1_start_y + valid_height,
+                                         r1_start_x:r1_start_x + valid_width]
+                r2_shifted = region2_gray[r2_start_y:r2_start_y + valid_height,
+                                         r2_start_x:r2_start_x + valid_width]
+
+                # Calculate difference
+                diff = np.mean(np.abs(r1_shifted.astype(float) - r2_shifted.astype(float)))
+
+                if diff < min_diff:
+                    min_diff = diff
+                    best_shift = (dx, dy)
+
+        return best_shift
+
+    def _find_optimal_shift_vertical(self, img1: np.ndarray, img2: np.ndarray, overlap: int) -> tuple:
+        """
+        Find optimal shift (dx, dy) to align overlapping regions vertically.
+        Searches within the overlap region to minimize pixel differences.
+        """
+        # Extract overlap regions
+        region1 = img1[-overlap:, :]  # Bottom edge of img1
+        region2 = img2[:overlap, :]   # Top edge of img2
+
+        # Match widths
+        min_width = min(region1.shape[1], region2.shape[1])
+        region1 = region1[:, :min_width]
+        region2 = region2[:, :min_width]
+
+        # Convert to grayscale for matching if needed
+        if len(region1.shape) == 3:
+            region1_gray = cv2.cvtColor(region1, cv2.COLOR_BGR2GRAY)
+            region2_gray = cv2.cvtColor(region2, cv2.COLOR_BGR2GRAY)
+        else:
+            region1_gray = region1
+            region2_gray = region2
+
+        # Search range: within the overlap region
+        max_shift_x = overlap // 2
+        max_shift_y = overlap // 2
+
+        best_shift = (0, 0)
+        min_diff = float('inf')
+
+        # Search for best alignment
+        for dy in range(-max_shift_y, max_shift_y + 1):
+            for dx in range(-max_shift_x, max_shift_x + 1):
+                # Calculate valid region after shift
+                if dy >= 0:
+                    r1_start_y = dy
+                    r2_start_y = 0
+                    valid_height = min(region1_gray.shape[0] - dy, region2_gray.shape[0])
+                else:
+                    r1_start_y = 0
+                    r2_start_y = -dy
+                    valid_height = min(region1_gray.shape[0], region2_gray.shape[0] + dy)
+
+                if dx >= 0:
+                    r1_start_x = dx
+                    r2_start_x = 0
+                    valid_width = min(region1_gray.shape[1] - dx, region2_gray.shape[1])
+                else:
+                    r1_start_x = 0
+                    r2_start_x = -dx
+                    valid_width = min(region1_gray.shape[1], region2_gray.shape[1] + dx)
+
+                if valid_height <= 0 or valid_width <= 0:
+                    continue
+
+                # Extract shifted regions
+                r1_shifted = region1_gray[r1_start_y:r1_start_y + valid_height,
+                                         r1_start_x:r1_start_x + valid_width]
+                r2_shifted = region2_gray[r2_start_y:r2_start_y + valid_height,
+                                         r2_start_x:r2_start_x + valid_width]
+
+                # Calculate difference
+                diff = np.mean(np.abs(r1_shifted.astype(float) - r2_shifted.astype(float)))
+
+                if diff < min_diff:
+                    min_diff = diff
+                    best_shift = (dx, dy)
+
+        return best_shift
+
+    def _merge_horizontal_with_shift(self, img1: np.ndarray, img2: np.ndarray, overlap: int,
+                                     shift_x: int, shift_y: int) -> np.ndarray:
+        """Merge two images horizontally with shift correction and feathered blending"""
+        # Calculate output dimensions accounting for shift
+        output_height = max(img1.shape[0], img2.shape[0] + abs(shift_y))
+        output_width = img1.shape[1] + img2.shape[1] - overlap + abs(shift_x)
+
+        # Create output array
+        if len(img1.shape) == 3:
+            result = np.zeros((output_height, output_width, img1.shape[2]), dtype=img1.dtype)
+        else:
+            result = np.zeros((output_height, output_width), dtype=img1.dtype)
+
+        # Place img1
+        img1_y = max(0, -shift_y)
+        result[img1_y:img1_y + img1.shape[0], :img1.shape[1]] = img1
+
+        # Calculate img2 position
+        img2_x = img1.shape[1] - overlap + shift_x
+        img2_y = max(0, shift_y)
+
+        # Determine blend region
+        blend_start_x = max(img1_y, img2_x)
+        blend_end_x = min(img1.shape[1], img2_x + img2.shape[1])
+        blend_width = max(0, blend_end_x - blend_start_x)
+
+        # Place non-overlapping part of img2
+        if img2_x + img2.shape[1] > blend_end_x:
+            result[img2_y:img2_y + img2.shape[0], blend_end_x:img2_x + img2.shape[1]] = \
+                img2[:, blend_end_x - img2_x:]
+
+        # Blend overlapping region
+        if blend_width > 0:
+            for i in range(blend_width):
+                alpha = (i / blend_width) ** 0.7  # Feathered blending
+                x_result = blend_start_x + i
+                x_img1 = x_result
+                x_img2 = x_result - img2_x
+
+                if 0 <= x_img1 < img1.shape[1] and 0 <= x_img2 < img2.shape[1]:
+                    # Determine valid height range for blending
+                    valid_y_start = max(img1_y, img2_y)
+                    valid_y_end = min(img1_y + img1.shape[0], img2_y + img2.shape[0])
+
+                    if valid_y_end > valid_y_start:
+                        y1_start = valid_y_start - img1_y
+                        y1_end = valid_y_end - img1_y
+                        y2_start = valid_y_start - img2_y
+                        y2_end = valid_y_end - img2_y
+
+                        result[valid_y_start:valid_y_end, x_result] = \
+                            ((1 - alpha) * img1[y1_start:y1_end, x_img1].astype(float) +
+                             alpha * img2[y2_start:y2_end, x_img2].astype(float)).astype(img1.dtype)
+
+        # Place img2 before blend region
+        if img2_x < blend_start_x:
+            result[img2_y:img2_y + img2.shape[0], img2_x:blend_start_x] = \
+                img2[:, :blend_start_x - img2_x]
+
+        return result
+
+    def _merge_vertical_with_shift(self, img1: np.ndarray, img2: np.ndarray, overlap: int,
+                                   shift_x: int, shift_y: int) -> np.ndarray:
+        """Merge two images vertically with shift correction and feathered blending"""
+        # Calculate output dimensions accounting for shift
+        output_height = img1.shape[0] + img2.shape[0] - overlap + abs(shift_y)
+        output_width = max(img1.shape[1], img2.shape[1] + abs(shift_x))
+
+        # Create output array
+        if len(img1.shape) == 3:
+            result = np.zeros((output_height, output_width, img1.shape[2]), dtype=img1.dtype)
+        else:
+            result = np.zeros((output_height, output_width), dtype=img1.dtype)
+
+        # Place img1
+        img1_x = max(0, -shift_x)
+        result[:img1.shape[0], img1_x:img1_x + img1.shape[1]] = img1
+
+        # Calculate img2 position
+        img2_y = img1.shape[0] - overlap + shift_y
+        img2_x = max(0, shift_x)
+
+        # Determine blend region
+        blend_start_y = max(0, img2_y)
+        blend_end_y = min(img1.shape[0], img2_y + img2.shape[0])
+        blend_height = max(0, blend_end_y - blend_start_y)
+
+        # Place non-overlapping part of img2
+        if img2_y + img2.shape[0] > blend_end_y:
+            result[blend_end_y:img2_y + img2.shape[0], img2_x:img2_x + img2.shape[1]] = \
+                img2[blend_end_y - img2_y:, :]
+
+        # Blend overlapping region
+        if blend_height > 0:
+            for i in range(blend_height):
+                alpha = (i / blend_height) ** 0.7  # Feathered blending
+                y_result = blend_start_y + i
+                y_img1 = y_result
+                y_img2 = y_result - img2_y
+
+                if 0 <= y_img1 < img1.shape[0] and 0 <= y_img2 < img2.shape[0]:
+                    # Determine valid width range for blending
+                    valid_x_start = max(img1_x, img2_x)
+                    valid_x_end = min(img1_x + img1.shape[1], img2_x + img2.shape[1])
+
+                    if valid_x_end > valid_x_start:
+                        x1_start = valid_x_start - img1_x
+                        x1_end = valid_x_end - img1_x
+                        x2_start = valid_x_start - img2_x
+                        x2_end = valid_x_end - img2_x
+
+                        result[y_result, valid_x_start:valid_x_end] = \
+                            ((1 - alpha) * img1[y_img1, x1_start:x1_end].astype(float) +
+                             alpha * img2[y_img2, x2_start:x2_end].astype(float)).astype(img1.dtype)
+
+        # Place img2 before blend region
+        if img2_y < blend_start_y:
+            result[img2_y:blend_start_y, img2_x:img2_x + img2.shape[1]] = \
+                img2[:blend_start_y - img2_y, :]
 
         return result
 
