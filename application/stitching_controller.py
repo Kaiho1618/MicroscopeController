@@ -1,5 +1,8 @@
 from typing import Dict, Any, List, Tuple
 from datetime import datetime
+import time
+
+
 from application.event_bus import event_bus, ErrorEvent, StitchingProgressEvent, ImageCaptureEvent
 from enums.enums import CornerPosition, CameraMagnitude, ProgressStatus
 
@@ -205,7 +208,7 @@ class StitchingController:
 
     def _wait_for_movement_completion(self):
         """移動完了を待つ"""
-        import time
+        time.sleep(1)
         while self.controller_service.is_moving():
             time.sleep(0.1)
 

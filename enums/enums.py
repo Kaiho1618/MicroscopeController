@@ -28,7 +28,10 @@ class StitchingType(Enum):
     SIMPLE = "simple"
     ADVANCED = "advanced"
 
+
 class SpeedLevel(Enum):
-    S1 = 100
-    S2 = 200
-    S3 = 300
+    S1 = "s1"
+    S2 = "s2"
+    S3 = "s3"
+    S4 = "s4"
+    S5 = "s5"

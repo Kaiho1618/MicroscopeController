@@ -4,7 +4,8 @@ import time
 
 from mock.test_env import test_env
 from application.event_bus import event_bus, StartMoveEvent, StopMoveEvent, MoveToEvent
-from application.event_bus import ErrorEvent
+from application.event_bus import ErrorEvent, PositionUpdateEvent
+from enums.enums import SpeedLevel
 
 
 def create_controller_service(config: Dict[str, Any]):
@@ -24,7 +25,7 @@ class MockControllerService:
         test_env.connect()
 
     def start_move(self, speed: float, degree: float):
-        test_env.start_move(speed, degree)
+        test_env.start_move(degree)
 
     def stop_move(self):
         test_env.stop_move()
@@ -53,6 +54,7 @@ class MockControllerService:
         print("Controller Service: Stop move")
         try:
             self.stop_move()
+            self.check_status()
             # Could publish a MoveStoppedEvent here if needed
         except Exception as e:
             error_event = ErrorEvent(error_message=f"Failed to stop move: {str(e)}")
@@ -81,6 +83,20 @@ class MockControllerService:
 
     def go_to_origin(self):
         test_env.move_to(0, 0, is_relative=False)
+
+    def check_status(self):
+        """Q:コマンドでステータスをチェックし、エラーやリミットセンサを検出"""
+        # Parse response: "   -1000,   20000, ACK1, ACK2, ACK3"
+        x, y = self.get_current_position()
+        # Publish position update event
+        position_event = PositionUpdateEvent(x=x, y=y)
+        event_bus.publish(position_event)
+
+        return True
+
+    def change_speed(self, speed_level: SpeedLevel):
+        speed = self.config["stage"]["speed"][speed_level.value] / 100
+        test_env.change_speed(speed)
 
 
 class ControllerService:
@@ -138,7 +154,7 @@ class ControllerService:
             event_bus.publish(error_event)
             raise RuntimeError(error_msg)
 
-    def _check_status(self):
+    def check_status(self):
         """Q:コマンドでステータスをチェックし、エラーやリミットセンサを検出"""
         self._send_command('Q:')
         response = self._read_response()
@@ -147,6 +163,20 @@ class ControllerService:
         parts = [p.strip() for p in response.split(',')]
 
         if len(parts) >= 5:
+            # Extract and publish position update
+            try:
+                x_pulses = int(parts[0].replace(' ', ''))
+                y_pulses = int(parts[1].replace(' ', ''))
+                pulses_per_mm = self.config["stage"]["pulses_per_mm"]
+                x_mm = x_pulses / pulses_per_mm
+                y_mm = y_pulses / pulses_per_mm
+
+                # Publish position update event
+                position_event = PositionUpdateEvent(x=x_mm, y=y_mm)
+                event_bus.publish(position_event)
+            except (ValueError, KeyError) as e:
+                print(f"Failed to parse position from status: {e}")
+
             ack1 = parts[2]  # Command error/OK
             ack2 = parts[3]  # Limit sensor status
             ack3 = parts[4]  # Busy/Ready
@@ -189,11 +219,27 @@ class ControllerService:
             time.sleep(poll_interval)
 
         # After movement completes, check for errors/limits
-        self._check_status()
+        self.check_status()
 
     def _mm_to_pulses(self, mm: float) -> int:
         """mmをパルス数に変換"""
         return int(mm * self.config["stage"]["pulses_per_mm"])
+    
+    def change_speed(self, speed_level: SpeedLevel):
+        self._ensure_ready()
+
+        fast = self.config["stage"]["speed"][speed_level.value]
+        accelation_time = self.config["stage"]["speed"]["accelation_time"]
+        slow = fast // 10  # slow = fast / 10
+        if fast >= 50:  # fast rangeのslowの範囲は50~20000
+            range_setting = 2  # high speed range
+            slow = max(50, slow)
+        else:
+            range_setting = 1  # low speed range
+            slow = max(1, slow)
+
+        command = f"D:{range_setting}S{slow}F{fast}R{accelation_time}S{slow}F{fast}R{accelation_time}"
+        self._send_command(command) 
 
     def start_move(self, speed: float, degree: float):
         """JOG移動を開始（degree: 0/90/180/270）"""
@@ -307,6 +353,7 @@ class ControllerService:
         except Exception as e:
             error_event = ErrorEvent(error_message=f"Failed to stop move: {str(e)}")
             event_bus.publish(error_event)
+        self.check_status()
 
     def on_move_to(self, event: MoveToEvent):
         print(f"Controller Service: Move to {event.target_pos}, Relative: {event.is_relative}")

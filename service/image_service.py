@@ -73,7 +73,7 @@ class ImageService:
             if refresh:
                 num_frames_to_flush = 5
                 for _ in range(num_frames_to_flush):
-                    self.cap.grab()
+                    self.cap.read()
 
             # Now read the actual frame
             ret, frame = self.cap.read()

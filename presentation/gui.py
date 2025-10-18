@@ -10,7 +10,7 @@ import numpy as np
 # Add the project root to the path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from application.event_bus import event_bus, ImageCaptureEvent, ErrorEvent, StartMoveEvent, StopMoveEvent, MoveToEvent, StitchingProgressEvent
+from application.event_bus import event_bus, ImageCaptureEvent, ErrorEvent, StartMoveEvent, StopMoveEvent, MoveToEvent, StitchingProgressEvent, PositionUpdateEvent
 from enums.enums import CameraMagnitude, CornerPosition, ProgressStatus, SpeedLevel
 
 
@@ -56,11 +56,16 @@ class MicroscopeGUI:
 
         # Keyboard movement tracking
         self.current_movement_key = None
+        self.key_release_timer = None  # Timer to detect genuine key release
 
         self.capture_interval = int(1 / self.config["camera"]["frame_rate"] * 1000)  # [ms]
 
         # 現在表示されている画像がスティッチング画像かどうかのフラグ
         self.stitched_image_flag = False
+
+        # Position update timer
+        self.position_update_timer = None
+        self.start_position_updates()
 
     def setup_gui(self):
         # Main frame with less padding
@@ -88,6 +93,7 @@ class MicroscopeGUI:
                                   values=[speed.name for speed in SpeedLevel],
                                   width=8, state="readonly")
         speed_combo.grid(row=0, column=1, padx=(2, 10), sticky=tk.W)
+        speed_combo.bind('<<ComboboxSelected>>', self.on_speed_change)
 
         # Movement buttons
         self.button_move_up = ttk.Button(movement_frame, text="↑ (W)", command=lambda: self.move_key('w'))
@@ -110,24 +116,29 @@ class MicroscopeGUI:
         position_frame = ttk.LabelFrame(left_panel, text="Position Controls", padding="5")
         position_frame.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=(0, 5))
 
-        # X, Y position with tighter spacing
-        ttk.Label(position_frame, text="X:").grid(row=0, column=0, sticky=tk.W)
-        self.x_var = tk.DoubleVar(value=0.0)
-        ttk.Entry(position_frame, textvariable=self.x_var, width=8).grid(row=0, column=1, padx=2)
+        # Current position display
+        ttk.Label(position_frame, text="Current Position:", font=("Arial", 9, "bold")).grid(row=0, column=0, columnspan=2, sticky=tk.W)
+        self.current_pos_label = ttk.Label(position_frame, text="X: 0.00 mm, Y: 0.00 mm", font=("Arial", 9))
+        self.current_pos_label.grid(row=0, column=2, columnspan=4, sticky=tk.W, padx=(5, 0))
 
-        ttk.Label(position_frame, text="Y:").grid(row=0, column=2, sticky=tk.W)
+        # X, Y position with tighter spacing
+        ttk.Label(position_frame, text="X:").grid(row=1, column=0, sticky=tk.W)
+        self.x_var = tk.DoubleVar(value=0.0)
+        ttk.Entry(position_frame, textvariable=self.x_var, width=8).grid(row=1, column=1, padx=2)
+
+        ttk.Label(position_frame, text="Y:").grid(row=1, column=2, sticky=tk.W)
         self.y_var = tk.DoubleVar(value=0.0)
-        ttk.Entry(position_frame, textvariable=self.y_var, width=8).grid(row=0, column=3, padx=2)
+        ttk.Entry(position_frame, textvariable=self.y_var, width=8).grid(row=1, column=3, padx=2)
 
         # Relative checkbox
         self.relative_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(position_frame, text="Relative", variable=self.relative_var).grid(row=0, column=4, padx=(5, 0))
+        ttk.Checkbutton(position_frame, text="Relative", variable=self.relative_var).grid(row=1, column=4, padx=(5, 0))
 
         # Move to button
-        ttk.Button(position_frame, text="Move To", command=self.move_to).grid(row=0, column=5, padx=(5, 0))
+        ttk.Button(position_frame, text="Move To", command=self.move_to).grid(row=1, column=5, padx=(5, 0))
 
         # Go to origin button
-        ttk.Button(position_frame, text="Go to Origin", command=self.go_to_origin).grid(row=1, column=0, columnspan=6, pady=(5, 0), sticky=(tk.W, tk.E))
+        ttk.Button(position_frame, text="Go to Origin", command=self.go_to_origin).grid(row=2, column=0, columnspan=6, pady=(5, 0), sticky=(tk.W, tk.E))
 
         # Stitching controls in left panel
         stitching_frame = ttk.LabelFrame(left_panel, text="Stitching Controls", padding="5")
@@ -236,6 +247,7 @@ class MicroscopeGUI:
         event_bus.subscribe(StopMoveEvent, self.on_stop_move)
         event_bus.subscribe(MoveToEvent, self.on_move_to)
         event_bus.subscribe(StitchingProgressEvent, self.on_stitching_progress)
+        event_bus.subscribe(PositionUpdateEvent, self.on_position_update)
 
     def load_default_image(self):
         """Load and display the default no-image placeholder"""
@@ -285,12 +297,28 @@ class MicroscopeGUI:
         self.manual_controller.move_to(0, 0, is_relative=False)
         self.log_event("Moving to origin (0, 0)")
 
+    def on_speed_change(self, event):
+        """Handle speed change from combobox"""
+        speed_name = self.speed_var.get()
+        try:
+            speed_level = SpeedLevel[speed_name]
+            self.log_event(f"Changing speed to {speed_name}")
+            self.controller_service.change_speed(speed_level)
+            self.log_event(f"Speed changed to {speed_name}")
+        except Exception as e:
+            self.log_event(f"Failed to change speed: {str(e)}")
+
     def on_key_press(self, event):
         """Handle key press events for movement"""
         key = event.keysym.lower()
 
         # Only handle movement keys
         if key in ['w', 'a', 's', 'd']:
+            # Cancel any pending release timer (this is a repeat, not a real release)
+            if self.key_release_timer:
+                self.root.after_cancel(self.key_release_timer)
+                self.key_release_timer = None
+
             # If this key is not already pressed
             if self.current_movement_key is None:
                 self.current_movement_key = key
@@ -313,11 +341,22 @@ class MicroscopeGUI:
 
         # Only handle movement keys
         if key in ['w', 'a', 's', 'd']:
-            # Remove from pressed keys
+            # Schedule a delayed check to see if this is a genuine release
+            # If another KeyPress comes within 50ms, it's just key repeat
             if key == self.current_movement_key:
-                self.stop_move()
-                self.current_movement_key = None
-                self.log_event(f"Keyboard movement stopped: {key.upper()}")
+                if self.key_release_timer:
+                    self.root.after_cancel(self.key_release_timer)
+
+                # Delay the actual stop by 50ms to filter out key repeat
+                self.key_release_timer = self.root.after(50, lambda: self._actual_key_release(key))
+
+    def _actual_key_release(self, key):
+        """Actually handle key release after confirming it's not key repeat"""
+        if key == self.current_movement_key:
+            self.stop_move()
+            self.current_movement_key = None
+            self.key_release_timer = None
+            self.log_event(f"Keyboard movement stopped: {key.upper()}")
 
     def on_focus_in(self, event):
         """Handle focus in events to ensure keyboard events work"""
@@ -506,6 +545,36 @@ class MicroscopeGUI:
         """Handle move to event"""
         self.log_event(f"Moving to {event.target_pos}, relative: {event.is_relative}")
 
+    def on_position_update(self, event: PositionUpdateEvent):
+        """Handle position update event"""
+        # Update the current position label
+        self.current_pos_label.configure(text=f"X: {event.x:.2f} mm, Y: {event.y:.2f} mm")
+
+    def start_position_updates(self):
+        """Start periodic position updates every 1 second"""
+        self.update_position()
+
+    def update_position(self):
+        """Update position by calling controller service check_status"""
+        if self.position_update_timer:
+            self.root.after_cancel(self.position_update_timer)
+
+        try:
+            # Call check_status which will publish PositionUpdateEvent
+            self.controller_service.check_status()
+        except Exception as e:
+            # Silently handle errors to avoid spamming the log
+            pass
+
+        # Schedule next update in 1000ms (1 second)
+        self.position_update_timer = self.root.after(1000, self.update_position)
+
+    def stop_position_updates(self):
+        """Stop periodic position updates"""
+        if self.position_update_timer:
+            self.root.after_cancel(self.position_update_timer)
+            self.position_update_timer = None
+
     def start_stitching(self):
         """Start stitching process"""
         try:
@@ -600,6 +669,7 @@ def main():
     # Handle window closing
     def on_closing():
         app.stop_auto_capture()  # Stop auto capture timer
+        app.stop_position_updates()  # Stop position update timer
         app.manual_controller.stop()
         app.stitching_controller.stop()  # Stop stitching controller
         event_bus.clear_all_subscribers()

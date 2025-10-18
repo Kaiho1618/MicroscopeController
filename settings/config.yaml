@@ -25,7 +25,13 @@ stage:
   pulses_per_mm: 1000       # パルス/mm変換係数（要調整）
   speed_slow: 500           # S速度（PPS）
   speed_fast: 5000          # F速度（PPS）
-  speed_accel_time: 200     # R加減速時間（ms）
+  speed:
+    s1: 1             # S1速度（PPS）
+    s2: 10
+    s3: 100
+    s4: 500
+    s5: 1000
+    accelation_time: 200  # 加減速時間（ms）
 
 # スティッチング設定
 stitching:

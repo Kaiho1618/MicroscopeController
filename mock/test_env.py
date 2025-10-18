@@ -56,11 +56,10 @@ class TestEnv():
             print(f"Error: Target position ({x}, {y}) out of bounds.")
             return False
     
-    def start_move(self, speed: float, degree: float):
+    def start_move(self, degree: float):
 
         # stopが押されたときに、まとめて移動する
         self.start_time = time.time()
-        self.speed = speed
         self.degree = degree
         self.is_moving = True
     
@@ -117,6 +116,9 @@ class TestEnv():
     def get_current_position(self):
         return (self.x, self.y)
 
+    def change_speed(self, speed: float):
+        self.speed = speed
+        print(f"Mock: Speed changed to {self.speed} mm/s")
 
 test_env = TestEnv()
 

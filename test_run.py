@@ -1,6 +1,7 @@
 import time
 import tkinter as tk
 import threading
+import argparse
 
 from utils import config_loader
 from service.file_service import FileService
@@ -40,7 +41,18 @@ def stitching_test():
 
 
 def main():
-    config = config_loader.load_config("settings/config.yaml")
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Microscope Controller GUI')
+    parser.add_argument('--mock', action='store_true', help='Use mock environment instead of real hardware')
+    args = parser.parse_args()
+
+    # Load config with mock override from command line
+    config = config_loader.load_config("settings/config.yaml", mock_override=args.mock)
+
+    # Display current mode
+    mode = "MOCK" if config.get('mock', False) else "REAL"
+    print(f"Starting Microscope Controller in {mode} mode")
+
     controller_service = create_controller_service(config)
     image_service = create_image_service(config)
     image_process_service = ImageProcessService(config)
@@ -75,9 +87,10 @@ def main():
                 print(f"Error in test_env.update: {e}")
             time.sleep(0.05)
 
-    # Start the update thread as daemon
-    update_thread = threading.Thread(target=update_test_env, daemon=True)
-    update_thread.start()
+    # Start the update thread as daemon only if mock mode is enabled
+    if config.get('mock', False):
+        update_thread = threading.Thread(target=update_test_env, daemon=True)
+        update_thread.start()
 
     # Handle window closing
     def on_closing():
@@ -88,7 +101,7 @@ def main():
 
     root.protocol("WM_DELETE_WINDOW", on_closing)
     root.mainloop()
-    print("Move out of bounds, stopping test.")
+    print("Application closed.")
 
 
 if __name__ == "__main__":

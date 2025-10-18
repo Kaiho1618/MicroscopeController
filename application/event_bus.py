@@ -40,6 +40,12 @@ class StitchingProgressEvent:
     status: ProgressStatus = ProgressStatus.IN_PROGRESS
 
 
+@dataclass
+class PositionUpdateEvent:
+    x: float
+    y: float
+
+
 class EventBus:
     def __init__(self):
         self._subscribers: Dict[type, List[Callable]] = {}
