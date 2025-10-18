@@ -94,8 +94,11 @@ def main():
 
     # Handle window closing
     def on_closing():
+        app.save_settings()  # Save GUI settings before closing
         app.stop_auto_capture()  # Stop auto capture timer
+        app.stop_position_updates()  # Stop position update timer
         app.manual_controller.stop()
+        app.stitching_controller.stop()  # Stop stitching controller
         event_bus.clear_all_subscribers()
         root.destroy()
 

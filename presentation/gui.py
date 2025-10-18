@@ -12,6 +12,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from application.event_bus import event_bus, ImageCaptureEvent, ErrorEvent, StartMoveEvent, StopMoveEvent, MoveToEvent, StitchingProgressEvent, PositionUpdateEvent
 from enums.enums import CameraMagnitude, CornerPosition, ProgressStatus, SpeedLevel
+from utils.settings_manager import SettingsManager
 
 
 class MicroscopeGUI:
@@ -32,8 +33,15 @@ class MicroscopeGUI:
         self.manual_controller = manual_controller
         self.stitching_controller = stitching_controller
 
+        # Initialize settings manager
+        self.settings_manager = SettingsManager()
+        self.last_save_directory = None
+
         # Set up GUI
         self.setup_gui()
+
+        # Load saved settings
+        self.load_settings()
 
         # Set up keyboard bindings
         self.setup_keyboard_bindings()
@@ -370,9 +378,11 @@ class MicroscopeGUI:
 
     def capture_image(self):
         """Capture image"""
-        # Open file dialog to select save path
+        # Open file dialog to select save path, starting from last saved directory
+        initial_dir = self.last_save_directory if self.last_save_directory else os.path.expanduser("~")
         file_path = filedialog.asksaveasfilename(
             title="Save Image As",
+            initialdir=initial_dir,
             defaultextension=".png",
             filetypes=[
                 ("PNG files", "*.png"),
@@ -391,6 +401,8 @@ class MicroscopeGUI:
             try:
                 # Save image using image service
                 self.file_service.save_image(result, file_path)
+                # Remember the directory for next time
+                self.last_save_directory = os.path.dirname(file_path)
                 self.log_event(f"Image captured and saved to: {file_path}")
             except Exception as e:
                 self.log_event(f"Failed to save image: {str(e)}")
@@ -661,6 +673,43 @@ class MicroscopeGUI:
         if len(lines) > 100:
             self.log_text.delete("1.0", f"{len(lines) - 100}.0")
 
+    def save_settings(self):
+        """Save current GUI settings to file"""
+        try:
+            settings = {
+                "speed": self.speed_var.get(),
+                "grid_x": self.grid_x_var.get(),
+                "grid_y": self.grid_y_var.get(),
+                "magnitude": self.magnitude_var.get(),
+                "corner": self.corner_var.get(),
+                "x_position": self.x_var.get(),
+                "y_position": self.y_var.get(),
+                "relative": self.relative_var.get(),
+                "last_save_directory": self.last_save_directory if self.last_save_directory else os.path.expanduser("~")
+            }
+            self.settings_manager.save_settings(settings)
+        except Exception as e:
+            print(f"Failed to save settings: {e}")
+
+    def load_settings(self):
+        """Load GUI settings from file"""
+        try:
+            settings = self.settings_manager.load_settings()
+
+            # Apply loaded settings to GUI controls
+            self.speed_var.set(settings.get("speed", "S1"))
+            self.grid_x_var.set(settings.get("grid_x", 3))
+            self.grid_y_var.set(settings.get("grid_y", 3))
+            self.magnitude_var.set(settings.get("magnitude", "x10"))
+            self.corner_var.set(settings.get("corner", "top_left"))
+            self.x_var.set(settings.get("x_position", 0.0))
+            self.y_var.set(settings.get("y_position", 0.0))
+            self.relative_var.set(settings.get("relative", True))
+            self.last_save_directory = settings.get("last_save_directory", os.path.expanduser("~"))
+
+        except Exception as e:
+            print(f"Failed to load settings: {e}")
+
 
 def main():
     root = tk.Tk()
@@ -668,6 +717,7 @@ def main():
 
     # Handle window closing
     def on_closing():
+        app.save_settings()  # Save GUI settings before closing
         app.stop_auto_capture()  # Stop auto capture timer
         app.stop_position_updates()  # Stop position update timer
         app.manual_controller.stop()
