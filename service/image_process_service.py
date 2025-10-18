@@ -108,7 +108,7 @@ class ImageProcessService:
         return stitched_image
 
     def _concatenate_advanced(self, images: List[Any], grid_size_x: int, grid_size_y: int) -> Any:
-        """Advanced concatenation using OpenCV Stitcher with feature matching"""
+        """Advanced concatenation with feathered blending using configured overlap ratio"""
         if len(images) != grid_size_x * grid_size_y:
             raise ValueError(f"Expected {grid_size_x * grid_size_y} images, got {len(images)}")
 
@@ -120,54 +120,21 @@ class ImageProcessService:
             else:
                 processed_images.append(np.array(img))
 
-        # Ensure all images are in BGR format for OpenCV Stitcher
-        bgr_images = []
-        for img in processed_images:
-            if len(img.shape) == 2:  # Grayscale
-                bgr_images.append(cv2.cvtColor(img, cv2.COLOR_GRAY2BGR))
-            elif img.shape[2] == 3:  # Already BGR
-                bgr_images.append(img)
-            elif img.shape[2] == 4:  # BGRA
-                bgr_images.append(cv2.cvtColor(img, cv2.COLOR_BGRA2BGR))
-            else:
-                bgr_images.append(img)
-
-        try:
-            # Use OpenCV's Stitcher with scans mode (better for organized grid images)
-            stitcher = cv2.Stitcher.create(cv2.Stitcher_SCANS)
-
-            # Configure stitcher parameters for microscopy
-            stitcher.setPanoConfidenceThresh(0.3)  # Lower threshold for microscopy images
-
-            # Perform stitching
-            status, stitched = stitcher.stitch(bgr_images)
-
-            if status == cv2.Stitcher_OK:
-                return stitched
-            else:
-                # If OpenCV stitcher fails, fall back to feature-based method
-                print(f"OpenCV Stitcher failed with status {status}, using fallback method")
-                return self._concatenate_advanced_fallback(processed_images, grid_size_x, grid_size_y)
-
-        except Exception as e:
-            print(f"Stitcher error: {e}, using fallback method")
-            return self._concatenate_advanced_fallback(processed_images, grid_size_x, grid_size_y)
-
-    def _concatenate_advanced_fallback(self, images: List[Any], grid_size_x: int, grid_size_y: int) -> Any:
-        """Fallback: Advanced concatenation with phase correlation and multi-band blending"""
         # Get dimensions from first image
-        if len(images[0].shape) == 3:
-            img_height, img_width, channels = images[0].shape
+        if len(processed_images[0].shape) == 3:
+            img_height, img_width, channels = processed_images[0].shape
         else:
-            img_height, img_width = images[0].shape
+            img_height, img_width = processed_images[0].shape
             channels = 1
 
-        # Get initial overlap ratio from config
+        # Get overlap ratio from config
         overlap_ratio = self.config.get('stitching', {}).get('overlap_ratio', 0.1)
 
-        # Calculate initial overlap in pixels
-        initial_overlap_x = int(img_width * overlap_ratio)
-        initial_overlap_y = int(img_height * overlap_ratio)
+        # Calculate overlap in pixels
+        overlap_x = int(img_width * overlap_ratio)
+        overlap_y = int(img_height * overlap_ratio)
+
+        print(f"Using configured overlap: {overlap_ratio*100:.1f}% ({overlap_x}px horizontal, {overlap_y}px vertical)")
 
         # Build stitched image row by row
         rows = []
@@ -181,22 +148,52 @@ class ImageProcessService:
                     grid_x = grid_size_x - 1 - x
 
                 img_idx = y * grid_size_x + grid_x
-                if img_idx < len(images):
-                    current_img = images[img_idx]
+                if img_idx < len(processed_images):
+                    current_img = processed_images[img_idx]
                     if current_img.shape[:2] != (img_height, img_width):
                         current_img = cv2.resize(current_img, (img_width, img_height))
                     row_images.append(current_img)
 
-            # Stitch images horizontally with phase correlation
+            # Stitch images horizontally with feathered blending
             if row_images:
-                row_stitched = self._stitch_horizontal_phase_corr(row_images, initial_overlap_x)
+                row_stitched = self._stitch_horizontal_simple(row_images, overlap_x)
                 rows.append(row_stitched)
 
-        # Stitch rows vertically with phase correlation
+        # Stitch rows vertically with feathered blending
         if not rows:
             raise ValueError("No rows to stitch")
 
-        result = self._stitch_vertical_phase_corr(rows, initial_overlap_y)
+        result = self._stitch_vertical_simple(rows, overlap_y)
+        return result
+
+    def _stitch_horizontal_simple(self, images: List[np.ndarray], overlap: int) -> np.ndarray:
+        """Stitch images horizontally with feathered blending using fixed overlap"""
+        if len(images) == 0:
+            raise ValueError("No images to stitch")
+        if len(images) == 1:
+            return images[0]
+
+        result = images[0].copy()
+
+        for i in range(1, len(images)):
+            # Merge with feathered blending using configured overlap
+            result = self._merge_horizontal_multiband(result, images[i], overlap)
+
+        return result
+
+    def _stitch_vertical_simple(self, images: List[np.ndarray], overlap: int) -> np.ndarray:
+        """Stitch images vertically with feathered blending using fixed overlap"""
+        if len(images) == 0:
+            raise ValueError("No images to stitch")
+        if len(images) == 1:
+            return images[0]
+
+        result = images[0].copy()
+
+        for i in range(1, len(images)):
+            # Merge with feathered blending using configured overlap
+            result = self._merge_vertical_multiband(result, images[i], overlap)
+
         return result
 
     def _stitch_horizontal_adaptive(self, images: List[np.ndarray], initial_overlap: int) -> np.ndarray:
