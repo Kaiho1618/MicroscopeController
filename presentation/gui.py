@@ -62,6 +62,11 @@ class MicroscopeGUI:
         self.auto_capture_timer = None
         self.auto_capture_active = False
 
+        # Click-to-move mode
+        self.click_to_move_active = False
+        self.current_image_size_mm = None  # Store current image size in mm
+        self.current_display_size_px = None  # Store current display size in pixels
+
         # Keyboard movement tracking
         self.current_movement_key = None
         self.key_release_timer = None  # Timer to detect genuine key release
@@ -207,6 +212,11 @@ class MicroscopeGUI:
         # Status label
         self.auto_capture_status = ttk.Label(image_frame, text="Auto capture: OFF", font=("Arial", 8))
         self.auto_capture_status.grid(row=0, column=2)
+
+        # Click-to-move checkbox
+        self.click_to_move_var = tk.BooleanVar(value=False)
+        click_checkbox = ttk.Checkbutton(image_frame, text="Click to Move", variable=self.click_to_move_var, command=self.toggle_click_to_move)
+        click_checkbox.grid(row=1, column=0, columnspan=3, sticky=tk.W, pady=(5, 0))
 
         # Image display in right panel - takes full space
         display_frame = ttk.LabelFrame(right_panel, text="Captured Image", padding="5")
@@ -543,6 +553,16 @@ class MicroscopeGUI:
             # Keep a reference to prevent garbage collection
             self.image_label.image = photo
 
+            # Store image metadata for click-to-move
+            if not self.stitched_image_flag:
+                # Only store metadata for regular (non-stitched) images
+                magnitude_str = self.magnitude_var.get()
+                self.current_image_size_mm = self.config["camera"]["image_size"].get(magnitude_str, [0, 0])
+                self.current_display_size_px = (new_width, new_height)
+            else:
+                self.current_image_size_mm = None
+                self.current_display_size_px = None
+
             # Log the image scaling info
             self.log_event(f"Image displayed: {width}x{height} -> {new_width}x{new_height} (scale: {scale:.2f})")
 
@@ -744,6 +764,63 @@ class MicroscopeGUI:
         except Exception as e:
             # If there's an error (e.g., invalid values), show default
             self.estimated_size_label.configure(text="Est. size: N/A")
+
+    def toggle_click_to_move(self):
+        """Toggle click-to-move mode on/off"""
+        self.click_to_move_active = self.click_to_move_var.get()
+
+        if self.click_to_move_active:
+            # Bind click event to image label
+            self.image_label.bind('<Button-1>', self.on_image_click)
+            self.log_event("Click-to-move mode: ON")
+        else:
+            # Unbind click event
+            self.image_label.unbind('<Button-1>')
+            self.log_event("Click-to-move mode: OFF")
+
+    def on_image_click(self, event):
+        """Handle click on image for click-to-move"""
+        if not self.click_to_move_active:
+            return
+
+        # Check if image metadata is available
+        if self.current_image_size_mm is None or self.current_display_size_px is None:
+            self.log_event("Click-to-move: No image metadata available (may be stitched image)")
+            return
+
+        try:
+            # Get click position in pixels
+            click_x_px = event.x
+            click_y_px = event.y
+
+            # Get display size
+            display_width_px, display_height_px = self.current_display_size_px
+
+            # Get image size in mm
+            image_width_mm, image_height_mm = self.current_image_size_mm
+
+            # Calculate center of image in pixels
+            center_x_px = display_width_px / 2
+            center_y_px = display_height_px / 2
+
+            # Calculate offset from center in pixels
+            offset_x_px = click_x_px - center_x_px
+            offset_y_px = click_y_px - center_y_px
+
+            # Convert pixel offset to mm
+            # Pixel-to-mm ratio
+            px_to_mm_x = image_width_mm / display_width_px
+            px_to_mm_y = image_height_mm / display_height_px
+
+            offset_x_mm = offset_x_px * px_to_mm_x
+            offset_y_mm = -offset_y_px * px_to_mm_y  # Negative because y-axis is inverted in image coordinates
+
+            # Move stage by relative offset
+            self.log_event(f"Click-to-move: Moving by ({offset_x_mm:.3f}, {offset_y_mm:.3f}) mm")
+            self.manual_controller.move_to(offset_x_mm, offset_y_mm, is_relative=True)
+
+        except Exception as e:
+            self.log_event(f"Click-to-move error: {str(e)}")
 
 
 def main():
