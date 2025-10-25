@@ -6,7 +6,7 @@ import cv2
 
 
 from application.event_bus import event_bus, ErrorEvent, StitchingProgressEvent, ImageCaptureEvent
-from enums.enums import CornerPosition, CameraMagnitude, ProgressStatus
+from enums.enums import CornerPosition, CameraMagnitude, ProgressStatus, StitchingType
 
 
 class StitchingController:
@@ -17,6 +17,8 @@ class StitchingController:
         self.image_process_service = image_process_service
         self.is_active = False
         self.captured_images = []
+        self.last_grid_size_x = 0
+        self.last_grid_size_y = 0
 
     def start(self):
         self.is_active = True
@@ -35,13 +37,14 @@ class StitchingController:
         )
         event_bus.publish(progress_event)
 
-    def stitching(self, grid_size_x: int, grid_size_y: int, magnitude: CameraMagnitude, corner: CornerPosition, save_all_images: bool = True) -> bool:
+    def stitching(self, grid_size_x: int, grid_size_y: int, magnitude: CameraMagnitude, corner: CornerPosition, stitching_type: StitchingType, save_all_images: bool = True) -> bool:
         """
         スティッチングを行うおおもとの関数
         param grid_size_x: x方向の撮影枚数
         param grid_size_y: y方向の撮影枚数
         param magnitude: 顕微鏡の倍率
         param corner: スティッチングの開始位置
+        param stitching_type: スティッチングのタイプ (simple/advanced)
 
         return success_flag: bool
         """
@@ -72,12 +75,17 @@ class StitchingController:
                 self._publish_error("Failed to capture images.", "Image capture failed")
                 return False
 
+            # Store captured images and grid size for potential re-stitching
+            self.captured_images = images
+            self.last_grid_size_x = grid_size_x
+            self.last_grid_size_y = grid_size_y
+
             # 全画像保存（オプション）
             if save_all_images:
                 self._save_all_images(images, grid_size_x, grid_size_y)
 
             # 画像結合
-            stitched_image = self.concatenate_images(images, grid_size_x, grid_size_y)
+            stitched_image = self.concatenate_images(images, grid_size_x, grid_size_y, stitching_type)
 
             if stitched_image is None:
                 self._publish_error("Failed to stitch images.", "Image stitching failed")
@@ -209,18 +217,15 @@ class StitchingController:
             )
             return []
 
-    def concatenate_images(self, images: List[Any], grid_size_x: int, grid_size_y: int) -> Any:
+    def concatenate_images(self, images: List[Any], grid_size_x: int, grid_size_y: int, stitching_type: StitchingType) -> Any:
         """image_process_serviceを呼び出し、画像を結合する"""
         try:
             progress_event = StitchingProgressEvent(progress_message="Stitching images...")
             event_bus.publish(progress_event)
 
-            # 画像結合パラメータを設定から取得
-            stitching_type = self.config["stitching"]["type"]
-
             # image_process_serviceで画像結合
             stitched_image = self.image_process_service.concatenate(
-                stitching_type=stitching_type,
+                stitching_type=stitching_type.value,
                 images=images,
                 grid_size_x=grid_size_x,
                 grid_size_y=grid_size_y
@@ -231,6 +236,65 @@ class StitchingController:
         except Exception as e:
             self._publish_error(f"Error occurred during stitching: {str(e)}", "Image stitching failed")
             return None
+
+    def has_captured_images(self) -> bool:
+        """Check if there are captured images available for re-stitching"""
+        return len(self.captured_images) > 0 and self.last_grid_size_x > 0 and self.last_grid_size_y > 0
+
+    def re_stitch(self, stitching_type: StitchingType) -> bool:
+        """
+        Re-stitch the last captured images with a different stitching type
+        param stitching_type: スティッチングのタイプ (simple/advanced)
+
+        return success_flag: bool
+        """
+        if not self.has_captured_images():
+            self._publish_error(
+                "No captured images available for re-stitching. Please run stitching first.",
+                "Re-stitching failed"
+            )
+            return False
+
+        try:
+            # ステータス更新: 再スティッチング開始
+            progress_event = StitchingProgressEvent(
+                progress_message=f"Re-stitching with {stitching_type.value} method...",
+                status=ProgressStatus.IN_PROGRESS
+            )
+            event_bus.publish(progress_event)
+
+            # 画像結合
+            stitched_image = self.concatenate_images(
+                self.captured_images,
+                self.last_grid_size_x,
+                self.last_grid_size_y,
+                stitching_type
+            )
+
+            if stitched_image is None:
+                self._publish_error("Failed to re-stitch images.", "Re-stitching failed")
+                return False
+
+            # 結合画像のイベント発行
+            image_event = ImageCaptureEvent(
+                image_data=stitched_image,
+                timestamp=datetime.now(),
+                is_stitched_image=True,
+            )
+            event_bus.publish(image_event)
+
+            # ステータス更新: 再スティッチング完了
+            progress_event = StitchingProgressEvent(
+                progress_message="Re-stitching completed",
+                status=ProgressStatus.COMPLETED,
+            )
+            event_bus.publish(progress_event)
+
+            return True
+
+        except Exception as e:
+            self._publish_error(f"Error occurred during re-stitching: {str(e)}", "Re-stitching failed")
+            return False
 
     def _save_all_images(self, images: List[Any], grid_size_x: int, grid_size_y: int) -> None:
         """Save all captured images to a timestamped folder"""

@@ -11,7 +11,7 @@ import numpy as np
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from application.event_bus import event_bus, ImageCaptureEvent, ErrorEvent, StartMoveEvent, StopMoveEvent, MoveToEvent, StitchingProgressEvent, PositionUpdateEvent
-from enums.enums import CameraMagnitude, CornerPosition, ProgressStatus, SpeedLevel
+from enums.enums import CameraMagnitude, CornerPosition, ProgressStatus, SpeedLevel, StitchingType
 from utils.settings_manager import SettingsManager
 
 
@@ -186,6 +186,14 @@ class MicroscopeGUI:
                                      width=8, state="readonly")
         magnitude_combo.grid(row=1, column=1, columnspan=2, padx=2, sticky=tk.W)
 
+        # Stitching type selection
+        ttk.Label(stitching_frame, text="Stitching Type:").grid(row=1, column=3, sticky=tk.W, padx=(10, 0))
+        self.stitching_type_var = tk.StringVar(value=StitchingType.ADVANCED.value)
+        stitching_type_combo = ttk.Combobox(stitching_frame, textvariable=self.stitching_type_var,
+                                           values=[st.value for st in StitchingType],
+                                           width=10, state="readonly")
+        stitching_type_combo.grid(row=1, column=4, columnspan=2, padx=2, sticky=tk.W)
+
         # Corner position selection
         ttk.Label(stitching_frame, text="Start Corner:").grid(row=2, column=0, sticky=tk.W)
         self.corner_var = tk.StringVar(value=CornerPosition.TOP_LEFT.value)
@@ -198,8 +206,12 @@ class MicroscopeGUI:
         self.stitching_button = ttk.Button(stitching_frame, text="Start Stitching", command=self.start_stitching)
         self.stitching_button.grid(row=3, column=0, columnspan=2, pady=(5, 0), sticky=tk.W)
 
+        # Re-stitch button
+        self.restitch_button = ttk.Button(stitching_frame, text="Re-stitch", command=self.re_stitch)
+        self.restitch_button.grid(row=3, column=2, pady=(5, 0), sticky=tk.W, padx=(5, 0))
+
         self.stitching_status = ttk.Label(stitching_frame, text="Ready", font=("Arial", 8))
-        self.stitching_status.grid(row=3, column=2, columnspan=2, pady=(5, 0), sticky=tk.W)
+        self.stitching_status.grid(row=3, column=3, columnspan=3, pady=(5, 0), sticky=tk.W)
 
         # Image controls in left panel
         image_frame = ttk.LabelFrame(left_panel, text="Image Controls", padding="5")
@@ -627,6 +639,7 @@ class MicroscopeGUI:
             grid_y = self.grid_y_var.get()
             magnitude_str = self.magnitude_var.get()
             corner_str = self.corner_var.get()
+            stitching_type_str = self.stitching_type_var.get()
 
             # Convert string values to enums
             magnitude = None
@@ -641,8 +654,14 @@ class MicroscopeGUI:
                     corner = cor
                     break
 
-            if magnitude is None or corner is None:
-                self.log_event("ERROR: Invalid magnitude or corner selection")
+            stitching_type = None
+            for st in StitchingType:
+                if st.value == stitching_type_str:
+                    stitching_type = st
+                    break
+
+            if magnitude is None or corner is None or stitching_type is None:
+                self.log_event("ERROR: Invalid magnitude, corner, or stitching type selection")
                 return
 
             # Validate grid size
@@ -657,12 +676,12 @@ class MicroscopeGUI:
 
             # Start stitching controller
             self.stitching_controller.start()
-            success_flag = self.stitching_controller.stitching(grid_x, grid_y, magnitude, corner)
+            success_flag = self.stitching_controller.stitching(grid_x, grid_y, magnitude, corner, stitching_type)
             if not success_flag:
                 self.end_stitching()
                 self.log_event("ERROR: Stitching process failed to start")
             else:
-                self.log_event(f"Stitching started: {grid_x}x{grid_y} grid, {magnitude_str} magnitude, starting from {corner_str}")
+                self.log_event(f"Stitching started: {grid_x}x{grid_y} grid, {magnitude_str} magnitude, {stitching_type_str} type, starting from {corner_str}")
 
         except Exception as e:
             self.log_event(f"ERROR: Failed to start stitching: {str(e)}")
@@ -694,6 +713,54 @@ class MicroscopeGUI:
         # Restart manual controller
         self.manual_controller.start()
 
+    def re_stitch(self):
+        """Re-stitch the last captured images with the currently selected stitching type"""
+        try:
+            # Check if there are captured images available
+            if not self.stitching_controller.has_captured_images():
+                self.log_event("ERROR: No captured images available. Run stitching first.")
+                messagebox.showwarning("Re-stitch", "No captured images available. Please run stitching first.")
+                return
+
+            # Get current stitching type selection
+            stitching_type_str = self.stitching_type_var.get()
+
+            # Convert to enum
+            stitching_type = None
+            for st in StitchingType:
+                if st.value == stitching_type_str:
+                    stitching_type = st
+                    break
+
+            if stitching_type is None:
+                self.log_event("ERROR: Invalid stitching type selection")
+                return
+
+            # Disable buttons during re-stitching
+            self.restitch_button.configure(state="disabled")
+            self.stitching_button.configure(state="disabled")
+            self.stitching_status.configure(text="Re-stitching...")
+
+            # Perform re-stitching
+            self.log_event(f"Re-stitching with {stitching_type_str} method...")
+            success_flag = self.stitching_controller.re_stitch(stitching_type)
+
+            if success_flag:
+                self.log_event(f"Re-stitching completed successfully with {stitching_type_str} method")
+            else:
+                self.log_event("ERROR: Re-stitching failed")
+
+            # Re-enable buttons
+            self.restitch_button.configure(state="normal")
+            self.stitching_button.configure(state="normal")
+            self.stitching_status.configure(text="Ready")
+
+        except Exception as e:
+            self.log_event(f"ERROR: Failed to re-stitch: {str(e)}")
+            self.restitch_button.configure(state="normal")
+            self.stitching_button.configure(state="normal")
+            self.stitching_status.configure(text="Error")
+
     def log_event(self, message):
         """Add event to log"""
         import datetime
@@ -717,6 +784,7 @@ class MicroscopeGUI:
                 "grid_y": self.grid_y_var.get(),
                 "magnitude": self.magnitude_var.get(),
                 "corner": self.corner_var.get(),
+                "stitching_type": self.stitching_type_var.get(),
                 "x_position": self.x_var.get(),
                 "y_position": self.y_var.get(),
                 "relative": self.relative_var.get(),
@@ -737,6 +805,7 @@ class MicroscopeGUI:
             self.grid_y_var.set(settings.get("grid_y", 3))
             self.magnitude_var.set(settings.get("magnitude", "x10"))
             self.corner_var.set(settings.get("corner", "top_left"))
+            self.stitching_type_var.set(settings.get("stitching_type", StitchingType.ADVANCED.value))
             self.x_var.set(settings.get("x_position", 0.0))
             self.y_var.set(settings.get("y_position", 0.0))
             self.relative_var.set(settings.get("relative", True))
