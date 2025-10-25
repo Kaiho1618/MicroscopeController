@@ -175,11 +175,11 @@ class MicroscopeGUI:
         # Grid size controls
         ttk.Label(stitching_frame, text="Grid X:").grid(row=0, column=0, sticky=tk.W)
         self.grid_x_var = tk.IntVar(value=3)
-        ttk.Entry(stitching_frame, textvariable=self.grid_x_var, width=6).grid(row=0, column=1, padx=2)
+        ttk.Spinbox(stitching_frame, textvariable=self.grid_x_var, from_=1, to=100, width=6).grid(row=0, column=1, padx=2)
 
         ttk.Label(stitching_frame, text="Grid Y:").grid(row=0, column=2, sticky=tk.W)
         self.grid_y_var = tk.IntVar(value=3)
-        ttk.Entry(stitching_frame, textvariable=self.grid_y_var, width=6).grid(row=0, column=3, padx=2)
+        ttk.Spinbox(stitching_frame, textvariable=self.grid_y_var, from_=1, to=100, width=6).grid(row=0, column=3, padx=2)
 
         # Estimated size display
         self.estimated_size_label = ttk.Label(stitching_frame, text="Est. size: 0.0 x 0.0 mm", font=("Arial", 8))
