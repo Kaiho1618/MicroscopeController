@@ -88,6 +88,13 @@ class MicroscopeGUI:
 
         self.displayed_image = None
 
+        # Measurement mode
+        self.measurement_active = False
+        self.measurement_start = None  # (x, y) in pixels on display
+        self.measurement_end = None    # (x, y) in pixels on display
+        self.measurement_image = None  # Original image without measurement line
+        self.measurement_magnitude = None  # Magnitude when measurement was taken
+
     def setup_gui(self):
         # Main frame with less padding
         main_frame = ttk.Frame(self.root, padding="5")
@@ -231,6 +238,13 @@ class MicroscopeGUI:
         self.click_to_move_var = tk.BooleanVar(value=False)
         click_checkbox = ttk.Checkbutton(image_frame, text="Click to Move", variable=self.click_to_move_var, command=self.toggle_click_to_move)
         click_checkbox.grid(row=1, column=0, columnspan=3, sticky=tk.W, pady=(5, 0))
+
+        # Measurement button and status
+        self.measurement_button = ttk.Button(image_frame, text="Measure", command=self.toggle_measurement)
+        self.measurement_button.grid(row=2, column=0, pady=(5, 0), sticky=tk.W)
+
+        self.measurement_status = ttk.Label(image_frame, text="", font=("Arial", 8))
+        self.measurement_status.grid(row=2, column=1, columnspan=2, pady=(5, 0), sticky=tk.W, padx=(5, 0))
 
         # Image display in right panel - takes full space
         display_frame = ttk.LabelFrame(right_panel, text="Captured Image", padding="5")
@@ -850,7 +864,12 @@ class MicroscopeGUI:
             self.log_event("Click-to-move mode: OFF")
 
     def on_image_click(self, event):
-        """Handle click on image for click-to-move"""
+        """Handle click on image for click-to-move and measurement"""
+        # Prioritize measurement mode over click-to-move
+        if self.measurement_active:
+            self.on_measurement_click(event)
+            return
+
         if not self.click_to_move_active:
             return
 
@@ -892,6 +911,256 @@ class MicroscopeGUI:
 
         except Exception as e:
             self.log_event(f"Click-to-move error: {str(e)}")
+
+    def toggle_measurement(self):
+        """Toggle measurement mode on/off"""
+        if self.measurement_active:
+            self.cancel_measurement()
+        else:
+            self.start_measurement()
+
+    def start_measurement(self):
+        """Start measurement mode"""
+        try:
+            # Capture current image (this will also display it)
+            image_data = self.manual_controller.capture_image()
+            if image_data is None:
+                self.log_event("ERROR: Failed to capture image for measurement")
+                messagebox.showerror("Measurement", "Failed to capture image")
+                return
+
+            # Wait a moment for the image to be displayed
+            self.root.update_idletasks()
+
+            # Store current magnitude
+            self.measurement_magnitude = self.magnitude_var.get()
+
+            # Store a copy of the displayed image (already resized)
+            if self.displayed_image is not None:
+                self.measurement_image = self.displayed_image.copy()
+            else:
+                self.log_event("ERROR: No displayed image available")
+                return
+
+            # Enable measurement mode
+            self.measurement_active = True
+            self.measurement_start = None
+            self.measurement_end = None
+
+            # Update UI
+            self.measurement_button.configure(text="Cancel Measure")
+            self.measurement_status.configure(text="Click two points to measure")
+            self.log_event("Measurement mode: ON - Click two points on the image")
+
+            # Ensure click event is bound
+            if not self.click_to_move_active:
+                self.image_label.bind('<Button-1>', self.on_image_click)
+
+        except Exception as e:
+            self.log_event(f"ERROR: Failed to start measurement: {str(e)}")
+
+    def cancel_measurement(self):
+        """Cancel measurement mode"""
+        self.measurement_active = False
+        self.measurement_start = None
+        self.measurement_end = None
+        self.measurement_magnitude = None
+
+        # Restore original image without measurement line
+        if self.measurement_image is not None:
+            # Convert to PIL Image for tkinter
+            rgb_image = cv2.cvtColor(self.measurement_image, cv2.COLOR_BGR2RGB)
+            pil_image = Image.fromarray(rgb_image)
+
+            # Convert to PhotoImage for tkinter
+            photo = ImageTk.PhotoImage(pil_image)
+
+            # Update the image label
+            self.image_label.configure(image=photo, text="")
+            # Keep a reference to prevent garbage collection
+            self.image_label.image = photo
+
+            self.measurement_image = None
+
+        # Update UI
+        self.measurement_button.configure(text="Measure")
+        self.measurement_status.configure(text="")
+        self.log_event("Measurement mode: OFF")
+
+        # Unbind click if click-to-move is not active
+        if not self.click_to_move_active:
+            self.image_label.unbind('<Button-1>')
+
+    def on_measurement_click(self, event):
+        """Handle mouse click during measurement mode"""
+        if not self.measurement_active:
+            return
+
+        # Get click position
+        x, y = event.x, event.y
+        self.stop_auto_capture()
+        if self.measurement_start is None:
+            # First click - set start point
+            self.measurement_start = (x, y)
+            self.measurement_status.configure(text="Click second point")
+            self.log_event(f"Measurement start point: ({x}, {y})")
+
+            # Draw start point on image
+            self.draw_measurement_line()
+
+        else:
+            # Second click - set end point and calculate
+            self.measurement_end = (x, y)
+            self.log_event(f"Measurement end point: ({x}, {y})")
+
+            # Draw line and calculate distance
+            self.draw_measurement_line()
+            self.calculate_measurement()
+
+            # Keep measurement mode active but allow new measurement
+            self.measurement_start = None
+            self.measurement_end = None
+
+    def draw_measurement_line(self):
+        """Draw measurement line on the image"""
+        if self.measurement_image is None:
+            return
+
+        try:
+            # Create a copy of the clean measurement image
+            img_with_line = self.measurement_image.copy()
+
+            # Draw start point if set
+            if self.measurement_start is not None:
+                cv2.circle(img_with_line, self.measurement_start, 5, (0, 255, 0), -1)
+
+                # Draw line if both points are set
+                if self.measurement_end is not None:
+                    cv2.line(img_with_line, self.measurement_start, self.measurement_end, (0, 255, 0), 2)
+                    cv2.circle(img_with_line, self.measurement_end, 5, (0, 255, 0), -1)
+
+                    # Calculate and display distance on the image
+                    if self.current_image_size_mm is not None and self.current_display_size_px is not None:
+                        # Calculate distance
+                        x1, y1 = self.measurement_start
+                        x2, y2 = self.measurement_end
+                        pixel_distance = ((x2 - x1)**2 + (y2 - y1)**2)**0.5
+
+                        # Get image size for conversion
+                        display_width_px, display_height_px = self.current_display_size_px
+                        image_width_mm, image_height_mm = self.current_image_size_mm
+
+                        # Calculate mm per pixel
+                        mm_per_px_x = image_width_mm / display_width_px
+                        mm_per_px_y = image_height_mm / display_height_px
+                        mm_per_px = (mm_per_px_x + mm_per_px_y) / 2
+
+                        # Calculate real distance
+                        distance_mm = pixel_distance * mm_per_px
+
+                        # Format distance text
+                        if distance_mm < 0.1:
+                            distance_um = distance_mm * 1000
+                            distance_text = f"{distance_um:.2f} um"
+                        else:
+                            distance_text = f"{distance_mm:.3f} mm"
+
+                        # Calculate midpoint for text position
+                        mid_x = int((x1 + x2) / 2)
+                        mid_y = int((y1 + y2) / 2)
+
+                        # Calculate text offset perpendicular to the line
+                        dx = x2 - x1
+                        dy = y2 - y1
+                        length = (dx**2 + dy**2)**0.5
+                        if length > 0:
+                            # Perpendicular offset (15 pixels)
+                            offset_x = int(-dy / length * 15)
+                            offset_y = int(dx / length * 15)
+                            text_x = mid_x + offset_x
+                            text_y = mid_y + offset_y
+                        else:
+                            text_x = mid_x
+                            text_y = mid_y - 15
+
+                        # Get text size for background rectangle
+                        font = cv2.FONT_HERSHEY_SIMPLEX
+                        font_scale = 0.6
+                        font_thickness = 2
+                        (text_width, text_height), baseline = cv2.getTextSize(distance_text, font, font_scale, font_thickness)
+
+                        # Draw semi-transparent background for text
+                        bg_x1 = text_x - 5
+                        bg_y1 = text_y - text_height - 5
+                        bg_x2 = text_x + text_width + 5
+                        bg_y2 = text_y + baseline + 5
+
+                        # Create overlay for semi-transparent background
+                        overlay = img_with_line.copy()
+                        cv2.rectangle(overlay, (bg_x1, bg_y1), (bg_x2, bg_y2), (0, 0, 0), -1)
+                        cv2.addWeighted(overlay, 0.5, img_with_line, 0.5, 0, img_with_line)
+
+                        # Draw text
+                        cv2.putText(img_with_line, distance_text, (text_x, text_y),
+                                   font, font_scale, (0, 255, 0), font_thickness, cv2.LINE_AA)
+
+            # Convert back to PIL Image for tkinter
+            rgb_image = cv2.cvtColor(img_with_line, cv2.COLOR_BGR2RGB)
+            pil_image = Image.fromarray(rgb_image)
+
+            # Convert to PhotoImage for tkinter
+            photo = ImageTk.PhotoImage(pil_image)
+
+            # Update the image label
+            self.image_label.configure(image=photo, text="")
+            # Keep a reference to prevent garbage collection
+            self.image_label.image = photo
+
+        except Exception as e:
+            self.log_event(f"ERROR: Failed to draw measurement line: {str(e)}")
+
+    def calculate_measurement(self):
+        """Calculate and display the measurement distance"""
+        if self.measurement_start is None or self.measurement_end is None:
+            return
+
+        if self.current_image_size_mm is None or self.current_display_size_px is None:
+            self.log_event("ERROR: No image size metadata available")
+            messagebox.showerror("Measurement", "Cannot calculate distance - no image size data")
+            return
+
+        try:
+            # Get pixel distance
+            x1, y1 = self.measurement_start
+            x2, y2 = self.measurement_end
+            pixel_distance = ((x2 - x1)**2 + (y2 - y1)**2)**0.5
+
+            # Get image size for conversion
+            display_width_px, display_height_px = self.current_display_size_px
+            image_width_mm, image_height_mm = self.current_image_size_mm
+
+            # Calculate mm per pixel (use average of x and y)
+            mm_per_px_x = image_width_mm / display_width_px
+            mm_per_px_y = image_height_mm / display_height_px
+            mm_per_px = (mm_per_px_x + mm_per_px_y) / 2
+
+            # Calculate real distance in mm
+            distance_mm = pixel_distance * mm_per_px
+
+            # Convert to micrometers if distance is very small
+            if distance_mm < 0.1:
+                distance_um = distance_mm * 1000
+                distance_str = f"{distance_um:.2f} μm"
+                self.log_event(f"Measurement: {distance_um:.2f} μm ({pixel_distance:.1f} px)")
+            else:
+                distance_str = f"{distance_mm:.3f} mm"
+                self.log_event(f"Measurement: {distance_mm:.3f} mm ({pixel_distance:.1f} px)")
+
+            # Update status label
+            self.measurement_status.configure(text=f"Distance: {distance_str}")
+
+        except Exception as e:
+            self.log_event(f"ERROR: Failed to calculate measurement: {str(e)}")
 
 
 def main():
