@@ -113,8 +113,6 @@ class ImageProcessService:
         if len(images) != grid_size_x * grid_size_y:
             raise ValueError(f"Expected {grid_size_x * grid_size_y} images, got {len(images)}")
 
-        images = self._reorder_images_zigzag(images, grid_size_x, grid_size_y)
-
         # Convert all images to numpy arrays
         processed_images = []
         for img in images:
@@ -141,13 +139,13 @@ class ImageProcessService:
 
         # Build grid with alignment
         aligned_positions = self._align_grid(
-            processed_images, grid_size_x, grid_size_y, 
+            processed_images, grid_size_x, grid_size_y,
             overlap_x, overlap_y, img_width, img_height
         )
 
         # Create canvas and blend images
         stitched_image = self._blend_images(
-            processed_images, aligned_positions, 
+            processed_images, aligned_positions,
             grid_size_x, grid_size_y, img_width, img_height
         )
 
@@ -186,7 +184,7 @@ class ImageProcessService:
                 new_y = img_h * y - overlap_y * y
 
                 if x > 0:  # Left neighbor exists
-                    ref_idx = y * grid_x + x - 1
+                    ref_idx = current_idx - 1
                     ref_img = images[ref_idx]
                     ref_pos = positions[ref_idx]
 
@@ -197,7 +195,7 @@ class ImageProcessService:
                     if left_shift is not None:
                         new_y = ref_pos[1]  - left_shift[1]
                 if y > 0:  # Top neighbor exists
-                    ref_idx = (y - 1) * grid_x + x
+                    ref_idx = current_idx - grid_x
                     ref_img = images[ref_idx]
                     ref_pos = positions[ref_idx]
 
@@ -214,8 +212,6 @@ class ImageProcessService:
                 positions[current_idx] = (int(new_x), int(new_y))
 
         return positions
-
-
 
     def _find_alignment(self, img1: np.ndarray, img2: np.ndarray) -> Tuple[int, int]:
         """
@@ -274,13 +270,7 @@ class ImageProcessService:
         
         # Blend each image
         for idx, (x, y) in enumerate(adjusted_positions):
-            # Handle zigzag indexing
-            grid_y_pos = idx // grid_x
-            grid_x_pos = idx % grid_x
-            if grid_y_pos % 2 == 0:
-                img_idx = idx
-            else:
-                img_idx = grid_y_pos * grid_x + (grid_x - 1 - grid_x_pos)
+            img_idx = idx
             
             img = images[img_idx].astype(np.float32)
             
@@ -326,7 +316,18 @@ class ImageProcessService:
 
 
     def _reorder_images_zigzag(self, images: List[Any], grid_x: int, grid_y: int) -> List[Any]:
-        """Reorder images from zigzag capture order to grid index order"""
+        """
+        Reorder images from zigzag capture order to grid coordinate order
+        
+        Example:
+        123
+        654
+        789
+        to
+        123
+        456
+        789
+        """
         if len(images) != grid_x * grid_y:
             raise ValueError(f"Expected {grid_x * grid_y} images, got {len(images)}")
 

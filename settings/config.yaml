@@ -1,7 +1,7 @@
 # カメラ設定
 camera:
-  resolution_width: 1920     # 解像度（幅）
-  resolution_height: 1080    # 解像度（高さ）
+  resolution_width: 5472     # 解像度（幅）
+  resolution_height: 3468    # 解像度（高さ）
   frame_rate: 10            # フレームレート
   image_size:
     x5: [0.95, 0.53]     # 5x倍率時の撮影範囲 (mm)
