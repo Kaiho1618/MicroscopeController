@@ -113,6 +113,7 @@ class ImageProcessService:
         if len(images) != grid_size_x * grid_size_y:
             raise ValueError(f"Expected {grid_size_x * grid_size_y} images, got {len(images)}")
 
+        images = self._reorder_images_zigzag(images, grid_size_x, grid_size_y)
         # Convert all images to numpy arrays
         processed_images = []
         for img in images:
