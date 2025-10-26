@@ -95,6 +95,8 @@ class MicroscopeGUI:
         self.measurement_image = None  # Original image without measurement line
         self.measurement_magnitude = None  # Magnitude when measurement was taken
 
+        self.start_auto_capture()
+
     def setup_gui(self):
         # Main frame with less padding
         main_frame = ttk.Frame(self.root, padding="5")
