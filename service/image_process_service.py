@@ -182,8 +182,9 @@ class ImageProcessService:
                 current_idx = y * grid_x + x
                 current_img = images[current_idx]
 
-                side_alignment_pos = None
-                top_alignment_pos = None
+                new_x = img_w * x - overlap_x * x
+                new_y = img_h * y - overlap_y * y
+
                 if x > 0:  # Left neighbor exists
                     ref_idx = y * grid_x + x - 1
                     ref_img = images[ref_idx]
@@ -194,9 +195,7 @@ class ImageProcessService:
                     left_shift = self._find_alignment(ref_region, curr_region)
                     
                     if left_shift is not None:
-                        new_x = ref_pos[0] + img_w - overlap_x - left_shift[0]
-                        new_y = ref_pos[1] - left_shift[1]
-                        side_alignment_pos = (new_x, new_y)
+                        new_y = ref_pos[1]  - left_shift[1]
                 if y > 0:  # Top neighbor exists
                     ref_idx = (y - 1) * grid_x + x
                     ref_img = images[ref_idx]
@@ -211,22 +210,8 @@ class ImageProcessService:
                     # if valid_x_shift and valid_y_shift:
                     if top_shift is not None:
                         new_x = ref_pos[0] - top_shift[0]
-                        new_y = ref_pos[1] + img_h - overlap_y - top_shift[1]
-                        top_alignment_pos = (new_x, new_y)
 
-                is_side_valid = side_alignment_pos is not None
-                is_top_valid = top_alignment_pos is not None
-                if is_side_valid and is_top_valid:
-                    (nx, ny) = ((side_alignment_pos[0] + top_alignment_pos[0]) / 2,
-                                (side_alignment_pos[1] + top_alignment_pos[1]) / 2)
-                elif is_top_valid:
-                    (nx, ny) = top_alignment_pos
-                elif is_side_valid:
-                    (nx, ny) = side_alignment_pos
-                else:
-                    nx = img_w * x - overlap_x * x
-                    ny = img_h * y - overlap_y * y
-                positions[current_idx] = (int(nx), int(ny))
+                positions[current_idx] = (int(new_x), int(new_y))
 
         return positions
 
@@ -359,89 +344,4 @@ class ImageProcessService:
 
         return reordered_images
 
-    def _find_alignment(self, img1: np.ndarray, img2: np.ndarray, search_range: int = 50) -> Tuple[int, int]:
-        """
-        Find alignment between two overlapping regions using template matching with cv2.minMaxLoc
-
-        This method uses normalized cross-correlation (cv2.TM_CCOEFF_NORMED) to find
-        the best match position. It's more robust to brightness variations than phase correlation.
-
-        Args:
-            img1: Reference image (overlap region from already-placed image)
-            img2: Template image (overlap region from image to be placed)
-            search_range: Maximum shift to search in pixels (default 50)
-
-        Returns:
-            (shift_x, shift_y) tuple or None if confidence is too low
-
-        How it works:
-        1. Creates a search area by padding img1
-        2. Uses img2 as a template to search within the padded area
-        3. cv2.matchTemplate computes correlation at each position
-        4. cv2.minMaxLoc finds the position with maximum correlation
-        5. Returns the shift from the expected center position
-        """
-        # Convert to grayscale if needed
-        if len(img1.shape) == 3:
-            gray1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
-            gray2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
-        else:
-            gray1, gray2 = img1, img2
-
-        # Get image dimensions
-        h1, w1 = gray1.shape
-        h2, w2 = gray2.shape
-
-        # Create a search area by padding the reference image
-        # This allows us to search for shifts in all directions
-        pad_size = search_range
-        search_area = cv2.copyMakeBorder(
-            gray1,
-            pad_size, pad_size, pad_size, pad_size,
-            cv2.BORDER_CONSTANT,
-            value=0
-        )
-
-        # Use img2 as template to search in the padded area
-        # Ensure template is not larger than search area
-        if h2 > search_area.shape[0] or w2 > search_area.shape[1]:
-            h2 = min(h2, search_area.shape[0] - 1)
-            w2 = min(w2, search_area.shape[1] - 1)
-            template = gray2[:h2, :w2]
-        else:
-            template = gray2
-
-        # Perform template matching using normalized cross-correlation
-        # TM_CCOEFF_NORMED: Normalized correlation coefficient
-        # Returns values in [-1, 1] where 1 = perfect match, -1 = perfect inverse
-        result = cv2.matchTemplate(search_area, template, cv2.TM_CCOEFF_NORMED)
-
-        # Find the location of best match using minMaxLoc
-        min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
-
-        # For TM_CCOEFF_NORMED, maximum value indicates best match
-        match_confidence = max_val
-        match_location = max_loc  # (x, y) position in search_area
-
-        # Calculate shift from expected center position
-        # If images were perfectly aligned, template would match at (pad_size, pad_size)
-        expected_x = pad_size
-        expected_y = pad_size
-
-        # Actual match location
-        actual_x, actual_y = match_location
-
-        # Shift is the difference from expected position
-        shift_x = actual_x - expected_x
-        shift_y = actual_y - expected_y
-
-        # Only return shift if confidence is high enough
-        # TM_CCOEFF_NORMED ranges from -1 to 1
-        # Typical good matches: > 0.6, excellent matches: > 0.8
-        confidence_threshold = 0.4
-
-        if match_confidence > confidence_threshold:
-            return (shift_x, shift_y)
-        else:
-            # Low confidence - alignment uncertain
-            return None
+   
