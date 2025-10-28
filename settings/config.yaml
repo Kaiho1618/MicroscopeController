@@ -26,11 +26,11 @@ stage:
   speed_slow: 500           # S速度（PPS）
   speed_fast: 5000          # F速度（PPS）
   speed:
-    s1: 1             # S1速度（PPS）
-    s2: 10
-    s3: 100
-    s4: 500
-    s5: 1000
+    s1: 50             # S1速度（PPS）
+    s2: 200
+    s3: 1000
+    s4: 5000
+    s5: 10000
     s6: 20000
     accelation_time: 200  # 加減速時間（ms）
 
