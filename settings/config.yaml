@@ -4,11 +4,11 @@ camera:
   resolution_height: 3468    # 解像度（高さ）
   frame_rate: 10            # フレームレート
   image_size:
-    x5: [2.704, 1.685]     # 5x倍率時の撮影範囲 (mm)
-    x10: [1, 0.5625]     # 10x倍率時の撮影範囲 (mm)
-    x20: [5, 5]     # 20x倍率時の撮影範囲 (mm)
-    x50: [0.4, 0.4]     # 50x倍率時の撮影範囲 (mm)
-    x100: [0.2, 0.2]    # 100x倍率時の撮影範囲 (mm)
+    x5: [2.711, 1.721]     # 5x倍率時の撮影範囲 (mm)
+    x10: [1.314, 0.831]     # 10x倍率時の撮影範囲 (mm)
+    x20: [0.653, 0.415]     # 20x倍率時の撮影範囲 (mm)
+    x50: [0.261, 0.168]     # 50x倍率時の撮影範囲 (mm)
+    x100: [0.132, 0.84]    # 100x倍率時の撮影範囲 (mm)
 
 # ステージ設定
 stage:
@@ -19,12 +19,7 @@ stage:
   x_max: 50.0               # X軸最大座標
   y_min: -50.0              # Y軸最小座標
   y_max: 50.0               # Y軸最大座標
-  default_speed: 10.0       # デフォルト移動速度
-  max_speed: 100.0          # 最大移動速度
-  step_size: 0.1            # 最小移動単位
   pulses_per_mm: 1000       # パルス/mm変換係数（要調整）
-  speed_slow: 500           # S速度（PPS）
-  speed_fast: 5000          # F速度（PPS）
   speed:
     s1: 50             # S1速度（PPS）
     s2: 200
@@ -43,13 +38,6 @@ stitching:
   compression_quality: 95   # 圧縮品質 (1-100)
   auto_blend: true          # 自動ブレンド
   blend_method: "linear"    # ブレンド方式 (linear/multiband/feather)
-
-# 画像処理設定
-image_processing:
-  enhance_contrast: true    # コントラスト強化
-  apply_sharpening: false   # シャープネス適用
-  noise_reduction: false    # ノイズ低減
-  auto_exposure: true       # 自動露出補正
 
 # GUI設定
 gui:
