@@ -70,6 +70,11 @@ class MicroscopeGUI:
         # Keyboard movement tracking
         self.current_movement_key = None
         self.key_release_timer = None  # Timer to detect genuine key release
+        self.movement_safety_timer = None  # Timer for periodic safety checks
+        self.movement_start_time = None  # Track when movement started
+        self.max_continuous_movement_ms = 10000  # Maximum 10 seconds of continuous movement
+        self.safety_check_interval_ms = 200  # Check every 200ms
+        self.key_is_pressed = {}  # Track actual key press state
 
         self.capture_interval = int(1 / self.config["camera"]["frame_rate"] * 1000)  # [ms]
 
@@ -297,6 +302,9 @@ class MicroscopeGUI:
         # Bind focus events to ensure keyboard events work
         self.root.bind('<Button-1>', self.on_click)
 
+        # Stop movement if window loses focus (safety feature)
+        self.root.bind('<FocusOut>', self.on_focus_out)
+
     def setup_event_subscriptions(self):
         """Subscribe to events for logging and UI updates"""
         event_bus.subscribe(ImageCaptureEvent, self.on_image_capture)
@@ -339,6 +347,13 @@ class MicroscopeGUI:
         self.button_move_down.state(['!pressed'])
         self.button_move_right.state(['!pressed'])
 
+        # Stop safety checks
+        self.stop_movement_safety_check()
+        self.movement_start_time = None
+
+        # Clear all key press states
+        self.key_is_pressed.clear()
+
         self.manual_controller.stop_move()
         self.log_event("Movement stopped")
 
@@ -372,6 +387,9 @@ class MicroscopeGUI:
 
         # Only handle movement keys
         if key in ['w', 'a', 's', 'd']:
+            # Mark key as pressed in our tracking dict
+            self.key_is_pressed[key] = True
+
             # Cancel any pending release timer (this is a repeat, not a real release)
             if self.key_release_timer:
                 self.root.after_cancel(self.key_release_timer)
@@ -380,6 +398,7 @@ class MicroscopeGUI:
             # If this key is not already pressed
             if self.current_movement_key is None:
                 self.current_movement_key = key
+                self.movement_start_time = self.root.tk.call('clock', 'milliseconds')
                 self.move_key(key)
                 if key == 'w':
                     self.button_move_up.state(['pressed'])
@@ -389,6 +408,9 @@ class MicroscopeGUI:
                     self.button_move_down.state(['pressed'])
                 elif key == 'd':
                     self.button_move_right.state(['pressed'])
+
+                # Start safety polling
+                self.start_movement_safety_check()
             else:
                 # Key is pressed but movement is already active
                 self.keyboard_status.configure(text=f"Keyboard: Moving {self.current_movement_key.upper()}")
@@ -399,6 +421,9 @@ class MicroscopeGUI:
 
         # Only handle movement keys
         if key in ['w', 'a', 's', 'd']:
+            # Mark key as released in our tracking dict
+            self.key_is_pressed[key] = False
+
             # Schedule a delayed check to see if this is a genuine release
             # If another KeyPress comes within 50ms, it's just key repeat
             if key == self.current_movement_key:
@@ -412,13 +437,65 @@ class MicroscopeGUI:
         """Actually handle key release after confirming it's not key repeat"""
         if key == self.current_movement_key:
             self.stop_move()
+            self.stop_movement_safety_check()
             self.current_movement_key = None
             self.key_release_timer = None
+            self.movement_start_time = None
             self.log_event(f"Keyboard movement stopped: {key.upper()}")
+
+    def start_movement_safety_check(self):
+        """Start periodic safety checks during movement"""
+        if self.movement_safety_timer is None:
+            self.movement_safety_timer = self.root.after(self.safety_check_interval_ms, self.check_movement_safety)
+
+    def stop_movement_safety_check(self):
+        """Stop periodic safety checks"""
+        if self.movement_safety_timer is not None:
+            self.root.after_cancel(self.movement_safety_timer)
+            self.movement_safety_timer = None
+
+    def check_movement_safety(self):
+        """Periodic safety check to ensure movement should continue"""
+        if self.current_movement_key is None:
+            # No movement active, stop checking
+            self.stop_movement_safety_check()
+            return
+
+        # Check 1: Verify the key is still marked as pressed in our tracking
+        if not self.key_is_pressed.get(self.current_movement_key, False):
+            self.log_event(f"SAFETY: Key {self.current_movement_key.upper()} no longer pressed - stopping movement")
+            self.stop_move()
+            self.stop_movement_safety_check()
+            self.current_movement_key = None
+            self.movement_start_time = None
+            return
+
+        # Check 2: Verify maximum continuous movement time not exceeded
+        if self.movement_start_time is not None:
+            current_time = self.root.tk.call('clock', 'milliseconds')
+            elapsed_ms = current_time - self.movement_start_time
+            if elapsed_ms > self.max_continuous_movement_ms:
+                self.log_event(f"SAFETY: Maximum movement time ({self.max_continuous_movement_ms}ms) exceeded - stopping movement")
+                self.stop_move()
+                self.stop_movement_safety_check()
+                self.current_movement_key = None
+                self.movement_start_time = None
+                return
+
+        # All checks passed, schedule next check
+        self.movement_safety_timer = self.root.after(self.safety_check_interval_ms, self.check_movement_safety)
 
     def on_focus_in(self, event):
         """Handle focus in events to ensure keyboard events work"""
         self.root.focus_set()
+
+    def on_focus_out(self, event):
+        """Handle focus loss - stop movement for safety"""
+        if self.current_movement_key is not None:
+            self.log_event("SAFETY: Window lost focus - stopping movement")
+            self.stop_move()
+            self.current_movement_key = None
+            self.movement_start_time = None
 
     def on_click(self, event):
         """Handle click events to maintain focus"""
