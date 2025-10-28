@@ -201,24 +201,16 @@ class MicroscopeGUI:
                                            width=10, state="readonly")
         stitching_type_combo.grid(row=1, column=4, columnspan=2, padx=2, sticky=tk.W)
 
-        # Corner position selection
-        ttk.Label(stitching_frame, text="Start Corner:").grid(row=2, column=0, sticky=tk.W)
-        self.corner_var = tk.StringVar(value=CornerPosition.TOP_LEFT.value)
-        corner_combo = ttk.Combobox(stitching_frame, textvariable=self.corner_var,
-                                  values=[corner.value for corner in CornerPosition],
-                                  width=12, state="readonly")
-        corner_combo.grid(row=2, column=1, columnspan=3, padx=2, sticky=tk.W)
-
         # Stitching button and status
         self.stitching_button = ttk.Button(stitching_frame, text="Start Stitching", command=self.start_stitching)
-        self.stitching_button.grid(row=3, column=0, columnspan=2, pady=(5, 0), sticky=tk.W)
+        self.stitching_button.grid(row=2, column=0, columnspan=2, pady=(5, 0), sticky=tk.W)
 
         # Re-stitch button
         self.restitch_button = ttk.Button(stitching_frame, text="Re-stitch", command=self.re_stitch)
-        self.restitch_button.grid(row=3, column=2, pady=(5, 0), sticky=tk.W, padx=(5, 0))
+        self.restitch_button.grid(row=2, column=2, pady=(5, 0), sticky=tk.W, padx=(5, 0))
 
         self.stitching_status = ttk.Label(stitching_frame, text="Ready", font=("Arial", 8))
-        self.stitching_status.grid(row=3, column=3, columnspan=3, pady=(5, 0), sticky=tk.W)
+        self.stitching_status.grid(row=2, column=3, columnspan=3, pady=(5, 0), sticky=tk.W)
 
         # Image controls in left panel
         image_frame = ttk.LabelFrame(left_panel, text="Image Controls", padding="5")
@@ -801,7 +793,6 @@ class MicroscopeGUI:
             grid_x = self.grid_x_var.get()
             grid_y = self.grid_y_var.get()
             magnitude_str = self.magnitude_var.get()
-            corner_str = self.corner_var.get()
             stitching_type_str = self.stitching_type_var.get()
 
             # Convert string values to enums
@@ -811,26 +802,23 @@ class MicroscopeGUI:
                     magnitude = mag
                     break
 
-            corner = None
-            for cor in CornerPosition:
-                if cor.value == corner_str:
-                    corner = cor
-                    break
-
             stitching_type = None
             for st in StitchingType:
                 if st.value == stitching_type_str:
                     stitching_type = st
                     break
 
-            if magnitude is None or corner is None or stitching_type is None:
-                self.log_event("ERROR: Invalid magnitude, corner, or stitching type selection")
+            if magnitude is None or stitching_type is None:
+                self.log_event("ERROR: Invalid magnitude or stitching type selection")
                 return
 
             # Validate grid size
             if grid_x < 1 or grid_y < 1:
                 self.log_event("ERROR: Grid size must be at least 1x1")
                 return
+
+            # Always start from top-left corner
+            corner = CornerPosition.TOP_LEFT
 
             # Disable stitching button and stop manual controller
             self.stitching_button.configure(state="disabled")
@@ -844,7 +832,7 @@ class MicroscopeGUI:
                 self.end_stitching()
                 self.log_event("ERROR: Stitching process failed to start")
             else:
-                self.log_event(f"Stitching started: {grid_x}x{grid_y} grid, {magnitude_str} magnitude, {stitching_type_str} type, starting from {corner_str}")
+                self.log_event(f"Stitching started: {grid_x}x{grid_y} grid, {magnitude_str} magnitude, {stitching_type_str} type, starting from top-left")
 
         except Exception as e:
             self.log_event(f"ERROR: Failed to start stitching: {str(e)}")
@@ -946,7 +934,6 @@ class MicroscopeGUI:
                 "grid_x": self.grid_x_var.get(),
                 "grid_y": self.grid_y_var.get(),
                 "magnitude": self.magnitude_var.get(),
-                "corner": self.corner_var.get(),
                 "stitching_type": self.stitching_type_var.get(),
                 "x_position": self.x_var.get(),
                 "y_position": self.y_var.get(),
@@ -967,7 +954,6 @@ class MicroscopeGUI:
             self.grid_x_var.set(settings.get("grid_x", 3))
             self.grid_y_var.set(settings.get("grid_y", 3))
             self.magnitude_var.set(settings.get("magnitude", "x10"))
-            self.corner_var.set(settings.get("corner", "top_left"))
             self.stitching_type_var.set(settings.get("stitching_type", StitchingType.ADVANCED.value))
             self.x_var.set(settings.get("x_position", 0.0))
             self.y_var.set(settings.get("y_position", 0.0))
