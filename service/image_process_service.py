@@ -194,7 +194,7 @@ class ImageProcessService:
                     left_shift = self._find_alignment(ref_region, curr_region)
                     
                     if left_shift is not None:
-                        new_y = ref_pos[1]  - left_shift[1]
+                        new_y = ref_pos[1] - left_shift[1]
                 if y > 0:  # Top neighbor exists
                     ref_idx = current_idx - grid_x
                     ref_img = images[ref_idx]
@@ -226,19 +226,21 @@ class ImageProcessService:
         else:
             gray1, gray2 = img1, img2
 
-        gray1 = gray1.astype(np.float32)
-        gray2 = gray2.astype(np.float32)        
-        gray1 -= np.mean(gray1)
-        gray2 -= np.mean(gray2)
+        _, binary1 = cv2.threshold(gray1, 0, 255, cv2.THRESH_OTSU)
+        _, binary2 = cv2.threshold(gray2, 0, 255, cv2.THRESH_OTSU)
 
-        
-        # cv2.imwrite("output/align_img1.png", gray1)
-        # cv2.imwrite("output/align_img2.png", gray2)
-        
+        # gray1 = gray1.astype(np.float32)
+        # gray2 = gray2.astype(np.float32)        
+        # gray1 -= np.mean(gray1)
+        # gray2 -= np.mean(gray2)
+
+        binary1 = binary1.astype(np.float32)
+        binary2 = binary2.astype(np.float32)
+
         # Use phase correlation for sub-pixel accuracy
         shift, response = cv2.phaseCorrelate(
-            np.float32(gray1),
-            np.float32(gray2),
+            np.float32(binary1),
+            np.float32(binary2),
         )
         
         # Only use shift if correlation is strong enough
