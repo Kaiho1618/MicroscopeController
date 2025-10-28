@@ -27,6 +27,7 @@ class ProgressStatus(Enum):
 class StitchingType(Enum):
     SIMPLE = "simple"
     ADVANCED = "advanced"
+    FEATURE_BASED = "feature_based"
 
 
 class SpeedLevel(Enum):

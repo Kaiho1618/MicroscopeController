@@ -32,6 +32,8 @@ class ImageProcessService:
                 return self._concatenate_grid(images, grid_size_x, grid_size_y)
             elif stitching_type == StitchingType.ADVANCED.value:
                 return self._concatenate_grid2(images, grid_size_x, grid_size_y)
+            elif stitching_type == StitchingType.FEATURE_BASED.value:
+                return self._concatenate_grid_features(images, grid_size_x, grid_size_y)
             else:
                 raise ValueError(f"Unsupported stitching type: {stitching_type}")
 
@@ -156,6 +158,52 @@ class ImageProcessService:
 
         return stitched_image
 
+    def _concatenate_grid_features(self, images: List[Any], grid_size_x: int, grid_size_y: int) -> Any:
+        """Grid concatenation with feature-based alignment and blending"""
+        if len(images) != grid_size_x * grid_size_y:
+            raise ValueError(f"Expected {grid_size_x * grid_size_y} images, got {len(images)}")
+
+        images = self._reorder_images_zigzag(images, grid_size_x, grid_size_y)
+        # Convert all images to numpy arrays
+        processed_images = []
+        for img in images:
+            if isinstance(img, np.ndarray):
+                processed_images.append(img)
+            else:
+                processed_images.append(np.array(img))
+
+        # Get dimensions
+        if len(processed_images[0].shape) == 3:
+            img_height, img_width, channels = processed_images[0].shape
+        else:
+            img_height, img_width = processed_images[0].shape
+            channels = 1
+            # Convert grayscale to 3-channel for processing
+            processed_images = [cv2.cvtColor(img, cv2.COLOR_GRAY2BGR) if len(img.shape) == 2 else img
+                            for img in processed_images]
+
+        # Get overlap ratio from config
+        overlap_ratio = self.config.get('stitching', {}).get('overlap_ratio', 0.1)
+        overlap_x = int(img_width * overlap_ratio)
+        overlap_y = int(img_height * overlap_ratio)
+
+        # Build grid with feature-based alignment
+        aligned_positions = self._align_grid_features(
+            processed_images, grid_size_x, grid_size_y,
+            overlap_x, overlap_y, img_width, img_height
+        )
+
+        # Create canvas and blend images
+        stitched_image = self._blend_images(
+            processed_images, aligned_positions,
+            grid_size_x, grid_size_y, img_width, img_height
+        )
+
+        # Convert back to grayscale if original was grayscale
+        if channels == 1:
+            stitched_image = cv2.cvtColor(stitched_image, cv2.COLOR_BGR2GRAY)
+
+        return stitched_image
 
     def _align_grid(self, images: List[np.ndarray], grid_x: int, grid_y: int,
                     overlap_x: int, overlap_y: int, img_w: int, img_h: int) -> List[Tuple[int, int]]:
@@ -214,6 +262,62 @@ class ImageProcessService:
 
         return positions
 
+    def _align_grid_features(self, images: List[np.ndarray], grid_x: int, grid_y: int,
+                    overlap_x: int, overlap_y: int, img_w: int, img_h: int) -> List[Tuple[int, int]]:
+        """
+        Align images using feature matching on overlap regions
+        以下の順に並べていく
+        123
+        456
+        789
+        """
+        # Pre-allocate positions array to match image indices
+        num_images = grid_x * grid_y
+        positions = [None] * num_images
+
+        # Start with first image at origin
+        positions[0] = (0, 0)
+
+        for y in range(grid_y):
+            for x in range(grid_x):
+                if y == 0 and x == 0:
+                    continue  # Skip first image already placed
+
+                current_idx = y * grid_x + x
+                current_img = images[current_idx]
+
+                new_x = img_w * x - overlap_x * x
+                new_y = img_h * y - overlap_y * y
+
+                if x > 0:  # Left neighbor exists
+                    ref_idx = current_idx - 1
+                    ref_img = images[ref_idx]
+                    ref_pos = positions[ref_idx]
+
+                    ref_region = ref_img[:, -overlap_x:]
+                    curr_region = current_img[:, :overlap_x]
+                    left_shift = self._find_alignment_features(ref_region, curr_region)
+
+                    if left_shift is not None:
+                        new_y = ref_pos[1] - left_shift[1]
+
+                if y > 0:  # Top neighbor exists
+                    ref_idx = current_idx - grid_x
+                    ref_img = images[ref_idx]
+                    ref_pos = positions[ref_idx]
+
+                    ref_region = ref_img[-overlap_y:, :]
+                    curr_region = current_img[:overlap_y, :]
+
+                    top_shift = self._find_alignment_features(ref_region, curr_region)
+
+                    if top_shift is not None:
+                        new_x = ref_pos[0] - top_shift[0]
+
+                positions[current_idx] = (int(new_x), int(new_y))
+
+        return positions
+
     def _find_alignment(self, img1: np.ndarray, img2: np.ndarray) -> Tuple[int, int]:
         """
         Find alignment between two overlapping regions using phase correlation
@@ -230,7 +334,7 @@ class ImageProcessService:
         _, binary2 = cv2.threshold(gray2, 0, 255, cv2.THRESH_OTSU)
 
         # gray1 = gray1.astype(np.float32)
-        # gray2 = gray2.astype(np.float32)        
+        # gray2 = gray2.astype(np.float32)
         # gray1 -= np.mean(gray1)
         # gray2 -= np.mean(gray2)
 
@@ -242,11 +346,102 @@ class ImageProcessService:
             np.float32(binary1),
             np.float32(binary2),
         )
-        
+
         # Only use shift if correlation is strong enough
         if response > 0.15:  # Threshold for confidence
             return (int(round(shift[0])), int(round(shift[1])))
         else:
+            return None
+
+    def _find_alignment_features(self, img1: np.ndarray, img2: np.ndarray) -> Tuple[int, int]:
+        """
+        Find alignment between two overlapping regions using feature matching
+        Uses ORB or AKAZE keypoint detection and matching
+        returns (shift_x, shift_y)
+        """
+        # Convert to grayscale if needed
+        if len(img1.shape) == 3:
+            gray1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
+            gray2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
+        else:
+            gray1, gray2 = img1, img2
+
+        try:
+            # Try AKAZE first (better quality, but might fail on some images)
+            detector = cv2.AKAZE_create()
+            kp1, des1 = detector.detectAndCompute(gray1, None)
+            kp2, des2 = detector.detectAndCompute(gray2, None)
+
+            # If not enough keypoints found, try ORB
+            if len(kp1) < 10 or len(kp2) < 10:
+                detector = cv2.ORB_create(nfeatures=1000)
+                kp1, des1 = detector.detectAndCompute(gray1, None)
+                kp2, des2 = detector.detectAndCompute(gray2, None)
+
+            # Check if we have enough keypoints
+            if len(kp1) < 4 or len(kp2) < 4 or des1 is None or des2 is None:
+                return None
+
+            # Match features using BFMatcher
+            if detector.__class__.__name__ == 'AKAZE':
+                matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
+            else:
+                matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
+
+            # Use KNN matching to get best 2 matches for each descriptor
+            matches = matcher.knnMatch(des1, des2, k=2)
+
+            # Apply ratio test (Lowe's ratio test)
+            good_matches = []
+            for match_pair in matches:
+                if len(match_pair) == 2:
+                    m, n = match_pair
+                    if m.distance < 0.75 * n.distance:
+                        good_matches.append(m)
+
+            # Need at least 4 good matches
+            if len(good_matches) < 4:
+                return None
+
+            # Extract matched keypoint coordinates
+            pts1 = np.float32([kp1[m.queryIdx].pt for m in good_matches])
+            pts2 = np.float32([kp2[m.trainIdx].pt for m in good_matches])
+
+            # Calculate shifts
+            shifts = pts1 - pts2
+
+            # Use median shift to be robust against outliers
+            median_shift_x = np.median(shifts[:, 0])
+            median_shift_y = np.median(shifts[:, 1])
+
+            # Filter outliers: keep only shifts close to median
+            tolerance = 20  # pixels
+            mask = (np.abs(shifts[:, 0] - median_shift_x) < tolerance) & \
+                   (np.abs(shifts[:, 1] - median_shift_y) < tolerance)
+
+            if np.sum(mask) < 4:
+                return None
+
+            # Calculate mean shift from inliers
+            inlier_shifts = shifts[mask]
+            mean_shift_x = np.mean(inlier_shifts[:, 0])
+            mean_shift_y = np.mean(inlier_shifts[:, 1])
+
+            # Calculate confidence based on number of inliers and consistency
+            confidence = np.sum(mask) / len(good_matches)
+            shift_std = np.std(inlier_shifts, axis=0)
+            consistency = 1.0 / (1.0 + np.mean(shift_std))
+
+            overall_confidence = confidence * consistency
+
+            # Only return shift if confidence is high enough
+            if overall_confidence > 0.3:
+                return (int(round(mean_shift_x)), int(round(mean_shift_y)))
+            else:
+                return None
+
+        except Exception as e:
+            # If feature matching fails, return None
             return None
 
     def _blend_images(self, images: List[np.ndarray], positions: List[Tuple[int, int]],
