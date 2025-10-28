@@ -253,6 +253,13 @@ class MicroscopeGUI:
         self.measurement_status = ttk.Label(image_frame, text="", font=("Arial", 8))
         self.measurement_status.grid(row=2, column=1, columnspan=2, pady=(5, 0), sticky=tk.W, padx=(5, 0))
 
+        # Camera connection button and status
+        self.camera_button = ttk.Button(image_frame, text="Disconnect Camera", command=self.toggle_camera_connection)
+        self.camera_button.grid(row=3, column=0, pady=(5, 0), sticky=tk.W)
+
+        self.camera_status = ttk.Label(image_frame, text="Camera: Connected", font=("Arial", 8), foreground="green")
+        self.camera_status.grid(row=3, column=1, columnspan=2, pady=(5, 0), sticky=tk.W, padx=(5, 0))
+
         # Image display in right panel - takes full space
         display_frame = ttk.LabelFrame(right_panel, text="Captured Image", padding="5")
         display_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
@@ -578,6 +585,29 @@ class MicroscopeGUI:
 
             # Schedule next capture
             self.schedule_next_capture()
+
+    def toggle_camera_connection(self):
+        """Toggle camera connection on/off"""
+        try:
+            if self.image_service.is_connected():
+                # Disconnect camera
+                # First stop auto capture if active
+                if self.auto_capture_active:
+                    self.stop_auto_capture()
+
+                self.image_service.disconnect()
+                self.camera_button.configure(text="Connect Camera")
+                self.camera_status.configure(text="Camera: Disconnected", foreground="red")
+                self.log_event("Camera disconnected")
+            else:
+                # Connect camera
+                self.image_service.connect()
+                self.camera_button.configure(text="Disconnect Camera")
+                self.camera_status.configure(text="Camera: Connected", foreground="green")
+                self.log_event("Camera connected")
+        except Exception as e:
+            self.log_event(f"Camera connection error: {str(e)}")
+            messagebox.showerror("Camera Error", f"Failed to toggle camera connection: {str(e)}")
 
     def on_image_capture(self, event: ImageCaptureEvent):
         """Handle image capture event"""

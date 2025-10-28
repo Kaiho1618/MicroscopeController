@@ -16,13 +16,27 @@ def create_image_service(config: Dict[str, Any]):
 class MockImageService:
     def __init__(self, config: Dict[str, Any]):
         self.config = config
+        self.connected = False
         self.connect()
 
     def connect(self):
         test_env.connect()
+        self.connected = True
+        print("Mock camera connected")
+
+    def disconnect(self):
+        """Disconnect mock camera"""
+        self.connected = False
+        print("Mock camera disconnected")
+
+    def is_connected(self):
+        """Check if camera is connected"""
+        return self.connected
 
     def capture(self, refresh=False):
         try:
+            if not self.connected:
+                raise RuntimeError("Mock camera is not connected")
             print("Capturing image in MockImageService...")
             test_env.display_status()
             image_data = test_env.capture()
@@ -37,6 +51,10 @@ class MockImageService:
             error_event = ErrorEvent(error_message=f"Failed to capture image: {str(e)}")
             event_bus.publish(error_event)
             return None
+
+    def stop(self):
+        """Stop mock camera"""
+        self.disconnect()
 
 
 class ImageService:
@@ -61,6 +79,17 @@ class ImageService:
         self.cap.set(cv2.CAP_PROP_FPS, camera_config["frame_rate"])
 
         print(f"Camera connected: {camera_config['resolution_width']}x{camera_config['resolution_height']} @ {camera_config['frame_rate']}fps")
+
+    def disconnect(self):
+        """カメラを切断"""
+        if self.cap:
+            self.cap.release()
+            self.cap = None
+            print("Camera disconnected")
+
+    def is_connected(self):
+        """Check if camera is connected"""
+        return self.cap is not None and self.cap.isOpened()
 
     def capture(self, refresh=False):
         """画像をキャプチャ"""
@@ -97,9 +126,7 @@ class ImageService:
 
     def stop(self):
         """カメラを停止してリソースを解放"""
-        if self.cap:
-            self.cap.release()
-            print("Camera released")
+        self.disconnect()
 
 
 if __name__ == "__main__":

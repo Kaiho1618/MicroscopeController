@@ -337,8 +337,6 @@ class ImageProcessService:
         _, binary1 = cv2.threshold(gray1, 0, 255, cv2.THRESH_OTSU)
         _, binary2 = cv2.threshold(gray2, 0, 255, cv2.THRESH_OTSU)
 
-        cv2.imwrite("output/debug_binary1.png", binary1)
-        cv2.imwrite("output/debug_binary2.png", binary2)
         # gray1 = gray1.astype(np.float32)
         # gray2 = gray2.astype(np.float32)
         # gray1 -= np.mean(gray1)
