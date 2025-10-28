@@ -330,9 +330,15 @@ class ImageProcessService:
         else:
             gray1, gray2 = img1, img2
 
+        # ノイズの影響をなくすためにガウシアンフィルタ→微分フィルタ→二値化
+        # gray1 = cv2.GaussianBlur(gray1, (5, 5), 0)
+        # gray2 = cv2.GaussianBlur(gray2, (5, 5), 0)
+
         _, binary1 = cv2.threshold(gray1, 0, 255, cv2.THRESH_OTSU)
         _, binary2 = cv2.threshold(gray2, 0, 255, cv2.THRESH_OTSU)
 
+        cv2.imwrite("output/debug_binary1.png", binary1)
+        cv2.imwrite("output/debug_binary2.png", binary2)
         # gray1 = gray1.astype(np.float32)
         # gray2 = gray2.astype(np.float32)
         # gray1 -= np.mean(gray1)
@@ -348,7 +354,7 @@ class ImageProcessService:
         )
 
         # Only use shift if correlation is strong enough
-        if response > 0.15:  # Threshold for confidence
+        if response > 0.1:  # Threshold for confidence
             return (int(round(shift[0])), int(round(shift[1])))
         else:
             return None
@@ -366,17 +372,20 @@ class ImageProcessService:
         else:
             gray1, gray2 = img1, img2
 
+        _, binary1 = cv2.threshold(gray1, 0, 255, cv2.THRESH_OTSU)
+        _, binary2 = cv2.threshold(gray2, 0, 255, cv2.THRESH_OTSU)
+
         try:
             # Try AKAZE first (better quality, but might fail on some images)
             detector = cv2.AKAZE_create()
-            kp1, des1 = detector.detectAndCompute(gray1, None)
-            kp2, des2 = detector.detectAndCompute(gray2, None)
+            kp1, des1 = detector.detectAndCompute(binary1, None)
+            kp2, des2 = detector.detectAndCompute(binary2, None)
 
             # If not enough keypoints found, try ORB
             if len(kp1) < 10 or len(kp2) < 10:
                 detector = cv2.ORB_create(nfeatures=1000)
-                kp1, des1 = detector.detectAndCompute(gray1, None)
-                kp2, des2 = detector.detectAndCompute(gray2, None)
+                kp1, des1 = detector.detectAndCompute(binary1, None)
+                kp2, des2 = detector.detectAndCompute(binary1, None)
 
             # Check if we have enough keypoints
             if len(kp1) < 4 or len(kp2) < 4 or des1 is None or des2 is None:
