@@ -137,7 +137,7 @@ class MicroscopeGUI:
         ttk.Button(movement_frame, text="STOP", command=self.stop_move, style="Accent.TButton").grid(row=2, column=2, pady=(5, 0))
 
         # Keyboard status with less spacing
-        self.keyboard_status = ttk.Label(movement_frame, text="Keyboard: Ready (W/A/S/D keys)", font=("Arial", 8))
+        self.keyboard_status = ttk.Label(movement_frame, text="Keyboard: Ready (W/A/S/D: move, R/F: speed)", font=("Arial", 8))
         self.keyboard_status.grid(row=3, column=0, columnspan=4, pady=(2, 0))
 
         # Position controls in left panel
@@ -374,9 +374,63 @@ class MicroscopeGUI:
         except Exception as e:
             self.log_event(f"Failed to change speed: {str(e)}")
 
+    def change_speed_up(self):
+        """Increase speed (R key)"""
+        try:
+            # Get all speed levels in order
+            speed_levels = list(SpeedLevel)
+            current_speed_name = self.speed_var.get()
+            current_speed = SpeedLevel[current_speed_name]
+
+            # Find current index
+            current_index = speed_levels.index(current_speed)
+
+            # Get next speed (if not already at maximum)
+            if current_index < len(speed_levels) - 1:
+                next_speed = speed_levels[current_index + 1]
+                self.speed_var.set(next_speed.name)
+                self.controller_service.change_speed(next_speed)
+                self.log_event(f"Speed increased to {next_speed.name}")
+            else:
+                self.log_event("Already at maximum speed")
+        except Exception as e:
+            self.log_event(f"Failed to increase speed: {str(e)}")
+
+    def change_speed_down(self):
+        """Decrease speed (F key)"""
+        try:
+            # Get all speed levels in order
+            speed_levels = list(SpeedLevel)
+            current_speed_name = self.speed_var.get()
+            current_speed = SpeedLevel[current_speed_name]
+
+            # Find current index
+            current_index = speed_levels.index(current_speed)
+
+            # Get previous speed (if not already at minimum)
+            if current_index > 0:
+                prev_speed = speed_levels[current_index - 1]
+                self.speed_var.set(prev_speed.name)
+                self.controller_service.change_speed(prev_speed)
+                self.log_event(f"Speed decreased to {prev_speed.name}")
+            else:
+                self.log_event("Already at minimum speed")
+        except Exception as e:
+            self.log_event(f"Failed to decrease speed: {str(e)}")
+
     def on_key_press(self, event):
-        """Handle key press events for movement"""
+        """Handle key press events for movement and speed control"""
         key = event.keysym.lower()
+
+        # Handle speed change keys (only when not moving to avoid conflicts)
+        if key in ['r', 'f'] and self.current_movement_key is None:
+            if key == 'r':
+                # Increase speed (faster)
+                self.change_speed_up()
+            elif key == 'f':
+                # Decrease speed (slower)
+                self.change_speed_down()
+            return
 
         # Only handle movement keys
         if key in ['w', 'a', 's', 'd']:
