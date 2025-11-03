@@ -21,8 +21,6 @@ def stitching_test():
     controller_service = create_controller_service(config)
     image_service = create_image_service(config)
     image_process_service = ImageProcessService(config)
-    file_service = FileService(config)
-    magnitude=CameraMagnitude.MAG_5X
 
     stitching_controller = StitchingController(
         config,
@@ -78,6 +76,7 @@ def main():
     )
 
     stop_event = threading.Event()
+
     def update_test_env():
         """Update test environment every 20ms"""
         while not stop_event.is_set():

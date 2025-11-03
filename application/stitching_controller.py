@@ -1,6 +1,5 @@
 from typing import Dict, Any, List, Tuple
 from datetime import datetime
-import time
 import os
 import cv2
 
@@ -187,22 +186,22 @@ class StitchingController:
         try:
             for i, (target_x, target_y) in enumerate(trajectory):
                 # Progress report
-                progress_msg = f"Moving to position {i+1}/{len(trajectory)}..."
+                progress_msg = f"Moving to position {i + 1}/{len(trajectory)}..."
                 progress_event = StitchingProgressEvent(progress_message=progress_msg)
                 event_bus.publish(progress_event)
 
                 self.controller_service.move_to(target_x, target_y, is_relative=False)
 
                 # 画像撮影
-                progress_msg = f"Capturing image at position {i+1}/{len(trajectory)}..."
+                progress_msg = f"Capturing image at position {i + 1}/{len(trajectory)}..."
                 progress_event = StitchingProgressEvent(progress_message=progress_msg)
                 event_bus.publish(progress_event)
 
                 image_data = self.image_service.capture(refresh=True)
                 if image_data is None:
                     self._publish_error(
-                        f"Failed to capture image at position {i+1}",
-                        f"Capture failed at position {i+1}/{len(trajectory)}"
+                        f"Failed to capture image at position {i + 1}",
+                        f"Capture failed at position {i + 1}/{len(trajectory)}"
                     )
                     return []
 
@@ -316,7 +315,7 @@ class StitchingController:
             cv2.imwrite(filepath, image)
 
         print(f"Saved {len(images)} images to {folder_path}")
-        
+
         # 縦横の撮影枚数をテキストファイルに保存
         info_filepath = os.path.join(folder_path, "info.txt")
         with open(info_filepath, 'w') as f:

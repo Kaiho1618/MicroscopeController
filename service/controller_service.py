@@ -11,7 +11,7 @@ from enums.enums import SpeedLevel
 def create_controller_service(config: Dict[str, Any]):
     mock = config["mock"]
     if mock:
-        return MockControllerService(config)    
+        return MockControllerService(config)
     return ControllerService(config)
 
 
@@ -223,7 +223,7 @@ class ControllerService:
     def _mm_to_pulses(self, mm: float) -> int:
         """mmをパルス数に変換"""
         return int(mm * self.config["stage"]["pulses_per_mm"])
-    
+
     def change_speed(self, speed_level: SpeedLevel):
         self._ensure_ready()
 
@@ -238,7 +238,7 @@ class ControllerService:
             slow = max(1, slow)
 
         command = f"D:{range_setting}S{slow}F{fast}R{acceleration_time}S{slow}F{fast}R{acceleration_time}"
-        self._send_command(command) 
+        self._send_command(command)
 
     def start_move(self, speed: float, degree: float):
         """JOG移動を開始（degree: 0/90/180/270）"""

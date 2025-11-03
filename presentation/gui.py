@@ -1,22 +1,29 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
-import sys
 import os
 from PIL import Image, ImageTk
 import io
 import cv2
 import numpy as np
 
-# Add the project root to the path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
-from application.event_bus import event_bus, ImageCaptureEvent, ErrorEvent, StartMoveEvent, StopMoveEvent, MoveToEvent, StitchingProgressEvent, PositionUpdateEvent
+from application.event_bus import (
+    event_bus,
+    ImageCaptureEvent,
+    ErrorEvent,
+    StartMoveEvent,
+    StopMoveEvent,
+    MoveToEvent,
+    StitchingProgressEvent,
+    PositionUpdateEvent,
+)
 from enums.enums import CameraMagnitude, CornerPosition, ProgressStatus, SpeedLevel, StitchingType
 from utils.settings_manager import SettingsManager
 
 
 class MicroscopeGUI:
-    def __init__(self, root, config, controller_service, image_service, file_service, manual_controller, stitching_controller):
+    def __init__(
+        self, root, config, controller_service, image_service, file_service, manual_controller, stitching_controller
+    ):
         self.root = root
         self.root.title("Microscope Controller")
         window_h = config["gui"]["window_height"]
@@ -88,9 +95,9 @@ class MicroscopeGUI:
         self.start_position_updates()
 
         # Set up automatic update of estimated size
-        self.grid_x_var.trace_add('write', lambda *args: self.update_estimated_size())
-        self.grid_y_var.trace_add('write', lambda *args: self.update_estimated_size())
-        self.magnitude_var.trace_add('write', lambda *args: self.update_estimated_size())
+        self.grid_x_var.trace_add("write", lambda *args: self.update_estimated_size())
+        self.grid_y_var.trace_add("write", lambda *args: self.update_estimated_size())
+        self.magnitude_var.trace_add("write", lambda *args: self.update_estimated_size())
         self.update_estimated_size()  # Initial calculation
 
         self.displayed_image = None
@@ -120,27 +127,35 @@ class MicroscopeGUI:
 
         ttk.Label(movement_frame, text="Speed:").grid(row=0, column=0, sticky=tk.W)
         self.speed_var = tk.StringVar(value=SpeedLevel.S1.name)
-        speed_combo = ttk.Combobox(movement_frame, textvariable=self.speed_var,
-                                  values=[speed.name for speed in SpeedLevel],
-                                  width=8, state="readonly")
+        speed_combo = ttk.Combobox(
+            movement_frame,
+            textvariable=self.speed_var,
+            values=[speed.name for speed in SpeedLevel],
+            width=8,
+            state="readonly",
+        )
         speed_combo.grid(row=0, column=1, padx=(2, 10), sticky=tk.W)
-        speed_combo.bind('<<ComboboxSelected>>', self.on_speed_change)
+        speed_combo.bind("<<ComboboxSelected>>", self.on_speed_change)
 
         # Movement buttons
-        self.button_move_up = ttk.Button(movement_frame, text="↑ (W)", command=lambda: self.move_key('w'))
+        self.button_move_up = ttk.Button(movement_frame, text="↑ (W)", command=lambda: self.move_key("w"))
         self.button_move_up.grid(row=0, column=2)
-        self.button_move_left = ttk.Button(movement_frame, text="← (A)", command=lambda: self.move_key('a'))
+        self.button_move_left = ttk.Button(movement_frame, text="← (A)", command=lambda: self.move_key("a"))
         self.button_move_left.grid(row=1, column=1)
-        self.button_move_down = ttk.Button(movement_frame, text="↓ (S)", command=lambda: self.move_key('s'))
+        self.button_move_down = ttk.Button(movement_frame, text="↓ (S)", command=lambda: self.move_key("s"))
         self.button_move_down.grid(row=1, column=2)
-        self.button_move_right = ttk.Button(movement_frame, text="→ (D)", command=lambda: self.move_key('d'))
+        self.button_move_right = ttk.Button(movement_frame, text="→ (D)", command=lambda: self.move_key("d"))
         self.button_move_right.grid(row=1, column=3)
 
         # Stop button with less spacing
-        ttk.Button(movement_frame, text="STOP", command=self.stop_move, style="Accent.TButton").grid(row=2, column=2, pady=(5, 0))
+        ttk.Button(movement_frame, text="STOP", command=self.stop_move, style="Accent.TButton").grid(
+            row=2, column=2, pady=(5, 0)
+        )
 
         # Keyboard status with less spacing
-        self.keyboard_status = ttk.Label(movement_frame, text="Keyboard: Ready (W/A/S/D: move, R/F: speed)", font=("Arial", 8))
+        self.keyboard_status = ttk.Label(
+            movement_frame, text="Keyboard: Ready (W/A/S/D: move, R/F: speed)", font=("Arial", 8)
+        )
         self.keyboard_status.grid(row=3, column=0, columnspan=4, pady=(2, 0))
 
         # Position controls in left panel
@@ -148,7 +163,9 @@ class MicroscopeGUI:
         position_frame.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=(0, 5))
 
         # Current position display
-        ttk.Label(position_frame, text="Current Position:", font=("Arial", 9, "bold")).grid(row=0, column=0, columnspan=2, sticky=tk.W)
+        ttk.Label(position_frame, text="Current Position:", font=("Arial", 9, "bold")).grid(
+            row=0, column=0, columnspan=2, sticky=tk.W
+        )
         self.current_pos_label = ttk.Label(position_frame, text="X: 0.00 mm, Y: 0.00 mm", font=("Arial", 9))
         self.current_pos_label.grid(row=0, column=2, columnspan=4, sticky=tk.W, padx=(5, 0))
 
@@ -169,7 +186,9 @@ class MicroscopeGUI:
         ttk.Button(position_frame, text="Move To", command=self.move_to).grid(row=1, column=5, padx=(5, 0))
 
         # Go to origin button
-        ttk.Button(position_frame, text="Go to Origin", command=self.go_to_origin).grid(row=2, column=0, columnspan=6, pady=(5, 0), sticky=(tk.W, tk.E))
+        ttk.Button(position_frame, text="Go to Origin", command=self.go_to_origin).grid(
+            row=2, column=0, columnspan=6, pady=(5, 0), sticky=(tk.W, tk.E)
+        )
 
         # Stitching controls in left panel
         stitching_frame = ttk.LabelFrame(left_panel, text="Stitching Controls", padding="5")
@@ -178,11 +197,15 @@ class MicroscopeGUI:
         # Grid size controls
         ttk.Label(stitching_frame, text="Grid X:").grid(row=0, column=0, sticky=tk.W)
         self.grid_x_var = tk.IntVar(value=3)
-        ttk.Spinbox(stitching_frame, textvariable=self.grid_x_var, from_=1, to=100, width=6).grid(row=0, column=1, padx=2)
+        ttk.Spinbox(stitching_frame, textvariable=self.grid_x_var, from_=1, to=100, width=6).grid(
+            row=0, column=1, padx=2
+        )
 
         ttk.Label(stitching_frame, text="Grid Y:").grid(row=0, column=2, sticky=tk.W)
         self.grid_y_var = tk.IntVar(value=3)
-        ttk.Spinbox(stitching_frame, textvariable=self.grid_y_var, from_=1, to=100, width=6).grid(row=0, column=3, padx=2)
+        ttk.Spinbox(stitching_frame, textvariable=self.grid_y_var, from_=1, to=100, width=6).grid(
+            row=0, column=3, padx=2
+        )
 
         # Estimated size display
         self.estimated_size_label = ttk.Label(stitching_frame, text="Est. size: 0.0 x 0.0 mm", font=("Arial", 8))
@@ -191,17 +214,25 @@ class MicroscopeGUI:
         # Magnification selection
         ttk.Label(stitching_frame, text="Magnitude:").grid(row=1, column=0, sticky=tk.W)
         self.magnitude_var = tk.StringVar(value=CameraMagnitude.MAG_10X.value)
-        magnitude_combo = ttk.Combobox(stitching_frame, textvariable=self.magnitude_var,
-                                     values=[mag.value for mag in CameraMagnitude],
-                                     width=8, state="readonly")
+        magnitude_combo = ttk.Combobox(
+            stitching_frame,
+            textvariable=self.magnitude_var,
+            values=[mag.value for mag in CameraMagnitude],
+            width=8,
+            state="readonly",
+        )
         magnitude_combo.grid(row=1, column=1, columnspan=2, padx=2, sticky=tk.W)
 
         # Stitching type selection
         ttk.Label(stitching_frame, text="Stitching Type:").grid(row=1, column=3, sticky=tk.W, padx=(10, 0))
         self.stitching_type_var = tk.StringVar(value=StitchingType.ADVANCED.value)
-        stitching_type_combo = ttk.Combobox(stitching_frame, textvariable=self.stitching_type_var,
-                                           values=[st.value for st in StitchingType],
-                                           width=10, state="readonly")
+        stitching_type_combo = ttk.Combobox(
+            stitching_frame,
+            textvariable=self.stitching_type_var,
+            values=[st.value for st in StitchingType],
+            width=10,
+            state="readonly",
+        )
         stitching_type_combo.grid(row=1, column=4, columnspan=2, padx=2, sticky=tk.W)
 
         # Stitching button and status
@@ -231,7 +262,9 @@ class MicroscopeGUI:
 
         # Click-to-move checkbox
         self.click_to_move_var = tk.BooleanVar(value=False)
-        click_checkbox = ttk.Checkbutton(image_frame, text="Click to Move", variable=self.click_to_move_var, command=self.toggle_click_to_move)
+        click_checkbox = ttk.Checkbutton(
+            image_frame, text="Click to Move", variable=self.click_to_move_var, command=self.toggle_click_to_move
+        )
         click_checkbox.grid(row=1, column=0, columnspan=3, sticky=tk.W, pady=(5, 0))
 
         # Camera connection button and status
@@ -246,8 +279,9 @@ class MicroscopeGUI:
         display_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
 
         # Image label for displaying captured images with larger minimum size
-        self.image_label = ttk.Label(display_frame, text="No image captured yet", anchor="center",
-                                   relief="sunken", borderwidth=1)
+        self.image_label = ttk.Label(
+            display_frame, text="No image captured yet", anchor="center", relief="sunken", borderwidth=1
+        )
         self.image_label.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
 
         # Configure image display frame to expand
@@ -284,14 +318,14 @@ class MicroscopeGUI:
         self.root.focus_set()
 
         # Bind key press and release events
-        self.root.bind('<KeyPress>', self.on_key_press)
-        self.root.bind('<KeyRelease>', self.on_key_release)
+        self.root.bind("<KeyPress>", self.on_key_press)
+        self.root.bind("<KeyRelease>", self.on_key_release)
 
         # Bind focus events to ensure keyboard events work
-        self.root.bind('<Button-1>', self.on_click)
+        self.root.bind("<Button-1>", self.on_click)
 
         # Stop movement if window loses focus (safety feature)
-        self.root.bind('<FocusOut>', self.on_focus_out)
+        self.root.bind("<FocusOut>", self.on_focus_out)
 
     def setup_event_subscriptions(self):
         """Subscribe to events for logging and UI updates"""
@@ -330,10 +364,10 @@ class MicroscopeGUI:
         """Stop movement"""
         # すべてのキーボタンをunpress状態にする
         self.current_movement_key = None
-        self.button_move_up.state(['!pressed'])
-        self.button_move_left.state(['!pressed'])
-        self.button_move_down.state(['!pressed'])
-        self.button_move_right.state(['!pressed'])
+        self.button_move_up.state(["!pressed"])
+        self.button_move_left.state(["!pressed"])
+        self.button_move_down.state(["!pressed"])
+        self.button_move_right.state(["!pressed"])
 
         # Stop safety checks
         self.stop_movement_safety_check()
@@ -418,17 +452,17 @@ class MicroscopeGUI:
         key = event.keysym.lower()
 
         # Handle speed change keys (only when not moving to avoid conflicts)
-        if key in ['r', 'f'] and self.current_movement_key is None:
-            if key == 'r':
+        if key in ["r", "f"] and self.current_movement_key is None:
+            if key == "r":
                 # Increase speed (faster)
                 self.change_speed_up()
-            elif key == 'f':
+            elif key == "f":
                 # Decrease speed (slower)
                 self.change_speed_down()
             return
 
         # Only handle movement keys
-        if key in ['w', 'a', 's', 'd']:
+        if key in ["w", "a", "s", "d"]:
             # Mark key as pressed in our tracking dict
             self.key_is_pressed[key] = True
 
@@ -440,16 +474,16 @@ class MicroscopeGUI:
             # If this key is not already pressed
             if self.current_movement_key is None:
                 self.current_movement_key = key
-                self.movement_start_time = self.root.tk.call('clock', 'milliseconds')
+                self.movement_start_time = self.root.tk.call("clock", "milliseconds")
                 self.move_key(key)
-                if key == 'w':
-                    self.button_move_up.state(['pressed'])
-                elif key == 'a':
-                    self.button_move_left.state(['pressed'])
-                elif key == 's':
-                    self.button_move_down.state(['pressed'])
-                elif key == 'd':
-                    self.button_move_right.state(['pressed'])
+                if key == "w":
+                    self.button_move_up.state(["pressed"])
+                elif key == "a":
+                    self.button_move_left.state(["pressed"])
+                elif key == "s":
+                    self.button_move_down.state(["pressed"])
+                elif key == "d":
+                    self.button_move_right.state(["pressed"])
 
                 # Start safety polling
                 self.start_movement_safety_check()
@@ -462,7 +496,7 @@ class MicroscopeGUI:
         key = event.keysym.lower()
 
         # Only handle movement keys
-        if key in ['w', 'a', 's', 'd']:
+        if key in ["w", "a", "s", "d"]:
             # Mark key as released in our tracking dict
             self.key_is_pressed[key] = False
 
@@ -514,10 +548,12 @@ class MicroscopeGUI:
 
         # Check 2: Verify maximum continuous movement time not exceeded
         if self.movement_start_time is not None:
-            current_time = self.root.tk.call('clock', 'milliseconds')
+            current_time = self.root.tk.call("clock", "milliseconds")
             elapsed_ms = current_time - self.movement_start_time
             if elapsed_ms > self.max_continuous_movement_ms:
-                self.log_event(f"SAFETY: Maximum movement time ({self.max_continuous_movement_ms}ms) exceeded - stopping movement")
+                self.log_event(
+                    f"SAFETY: Maximum movement time ({self.max_continuous_movement_ms}ms) exceeded - stopping movement"
+                )
                 self.stop_move()
                 self.stop_movement_safety_check()
                 self.current_movement_key = None
@@ -553,11 +589,7 @@ class MicroscopeGUI:
             title="Save Image As",
             initialdir=initial_dir,
             defaultextension=".png",
-            filetypes=[
-                ("PNG files", "*.png"),
-                ("JPEG files", "*.jpg"),
-                ("All files", "*.*")
-            ]
+            filetypes=[("PNG files", "*.png"), ("JPEG files", "*.jpg"), ("All files", "*.*")],
         )
 
         if not file_path:
@@ -678,7 +710,7 @@ class MicroscopeGUI:
                 # If image_data is bytes, load from bytes
                 pil_image = Image.open(io.BytesIO(image_data))
                 cv_image = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
-            elif hasattr(image_data, 'save'):
+            elif hasattr(image_data, "save"):
                 # If image_data is already a PIL Image
                 cv_image = cv2.cvtColor(np.array(image_data), cv2.COLOR_RGB2BGR)
             else:
@@ -759,8 +791,9 @@ class MicroscopeGUI:
 
         # If it's a camera-related error and auto-capture is active, stop auto-capture
         error_msg_lower = event.error_message.lower()
-        if ("camera" in error_msg_lower and "not connected" in error_msg_lower) or \
-           ("failed to capture" in error_msg_lower):
+        if ("camera" in error_msg_lower and "not connected" in error_msg_lower) or (
+            "failed to capture" in error_msg_lower
+        ):
             if self.auto_capture_active:
                 self.stop_auto_capture()
                 self.log_event("Auto-capture stopped due to camera error")
@@ -855,7 +888,9 @@ class MicroscopeGUI:
                 self.end_stitching()
                 self.log_event("ERROR: Stitching process failed to start")
             else:
-                self.log_event(f"Stitching started: {grid_x}x{grid_y} grid, {magnitude_str} magnitude, {stitching_type_str} type, starting from top-left")
+                self.log_event(
+                    f"Stitching started: {grid_x}x{grid_y} grid, {magnitude_str} magnitude, {stitching_type_str} type, starting from top-left"
+                )
 
         except Exception as e:
             self.log_event(f"ERROR: Failed to start stitching: {str(e)}")
@@ -938,6 +973,7 @@ class MicroscopeGUI:
     def log_event(self, message):
         """Add event to log"""
         import datetime
+
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
         log_message = f"[{timestamp}] {message}\n"
 
@@ -945,7 +981,7 @@ class MicroscopeGUI:
         self.log_text.see(tk.END)
 
         # Keep only last 100 lines
-        lines = self.log_text.get("1.0", tk.END).split('\n')
+        lines = self.log_text.get("1.0", tk.END).split("\n")
         if len(lines) > 100:
             self.log_text.delete("1.0", f"{len(lines) - 100}.0")
 
@@ -961,7 +997,9 @@ class MicroscopeGUI:
                 "x_position": self.x_var.get(),
                 "y_position": self.y_var.get(),
                 "relative": self.relative_var.get(),
-                "last_save_directory": self.last_save_directory if self.last_save_directory else os.path.expanduser("~")
+                "last_save_directory": (
+                    self.last_save_directory if self.last_save_directory else os.path.expanduser("~")
+                ),
             }
             self.settings_manager.save_settings(settings)
         except Exception as e:
@@ -1004,7 +1042,7 @@ class MicroscopeGUI:
 
             # Update the label
             self.estimated_size_label.configure(text=f"Est. size: {est_width:.1f} x {est_height:.1f} mm")
-        except Exception as e:
+        except Exception:
             # If there's an error (e.g., invalid values), show default
             self.estimated_size_label.configure(text="Est. size: N/A")
 
@@ -1014,11 +1052,11 @@ class MicroscopeGUI:
 
         if self.click_to_move_active:
             # Bind click event to image label
-            self.image_label.bind('<Button-1>', self.on_image_click)
+            self.image_label.bind("<Button-1>", self.on_image_click)
             self.log_event("Click-to-move mode: ON")
         else:
             # Unbind click event
-            self.image_label.unbind('<Button-1>')
+            self.image_label.unbind("<Button-1>")
             self.log_event("Click-to-move mode: OFF")
 
     def on_image_click(self, event):
