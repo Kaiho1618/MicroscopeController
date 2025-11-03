@@ -93,6 +93,7 @@ class MicroscopeGUI:
 
         self.displayed_image = None
 
+        self.on_speed_change(None)  # Initialize speed setting
         self.start_auto_capture()
 
     def setup_gui(self):
