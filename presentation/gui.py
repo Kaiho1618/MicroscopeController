@@ -585,8 +585,8 @@ class MicroscopeGUI:
         """Start automatic image capture"""
         if not self.auto_capture_active:
             self.auto_capture_active = True
-            self.auto_capture_button.configure(text="Stop Auto Capture")
-            self.auto_capture_status.configure(text="Auto capture: ON")
+            self.auto_capture_button.configure(text="Capture Image")
+            self.auto_capture_status.configure(text="Live View: ON")
             self.log_event("Auto capture started")
             self.schedule_next_capture()
 
@@ -597,8 +597,8 @@ class MicroscopeGUI:
             if self.auto_capture_timer:
                 self.root.after_cancel(self.auto_capture_timer)
                 self.auto_capture_timer = None
-            self.auto_capture_button.configure(text="Start Auto Capture)")
-            self.auto_capture_status.configure(text="Auto capture: OFF")
+            self.auto_capture_button.configure(text="Live View")
+            self.auto_capture_status.configure(text="LIve View: OFF")
             self.log_event("Auto capture stopped")
 
     def schedule_next_capture(self):

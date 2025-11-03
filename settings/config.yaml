@@ -38,6 +38,13 @@ stitching:
   compression_quality: 95   # 圧縮品質 (1-100)
   auto_blend: true          # 自動ブレンド
   blend_method: "linear"    # ブレンド方式 (linear/multiband/feather)
+  # アライメント品質設定
+  alignment_quality:
+    min_matches: 10         # 最小特徴点マッチ数
+    min_good_matches: 4     # 最小良質マッチ数（フィルタ後）
+    max_match_distance: 150  # 最大マッチ距離（ピクセル）
+    outlier_tolerance: 150   # 外れ値許容範囲（ピクセル）
+    min_confidence: 0.15    # 最小信頼度（0.0-1.0）低いほど緩い
 
 # GUI設定
 gui:
