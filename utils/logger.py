@@ -4,7 +4,6 @@
 
 import logging
 import logging.handlers
-import os
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -151,34 +150,53 @@ class MicroscopeLogger:
         else:
             self._logger.warning(f"Invalid log level: {level}")
 
+    def info(self, msg: str):
+        """情報ログの簡易関数"""
+        self._logger.info(msg)
+    
+    def debug(self, msg: str):
+        """デバッグログの簡易関数"""
+        self._logger.debug(msg)
+    
+    def critical(self, msg: str):
+        """クリティカルログの簡易関数"""
+        self._logger.critical(msg)
+
+    def warning(self, msg: str):
+        """警告ログの簡易関数"""
+        self._logger.warning(msg)
+
+    def error(self, msg: str):
+        """エラーログの簡易関数"""
+        self._logger.error(msg)
 
 # シングルトンインスタンス
-logger_instance = MicroscopeLogger()
+logger = MicroscopeLogger()
 
 # 便利な関数エイリアス
 def get_logger() -> logging.Logger:
     """メインロガーを取得"""
-    return logger_instance.get_logger()
+    return logger.get_logger()
 
 def log_camera(operation: str, result: str = "success", details: str = ""):
     """カメラ操作ログの簡易関数"""
-    logger_instance.log_camera_operation(operation, result, details)
+    logger.log_camera_operation(operation, result, details)
 
 def log_stage(operation: str, position: tuple = None, result: str = "success", details: str = ""):
     """ステージ操作ログの簡易関数"""
-    logger_instance.log_stage_operation(operation, position, result, details)
+    logger.log_stage_operation(operation, position, result, details)
 
 def log_stitching(current_step: int, total_steps: int, operation: str = ""):
     """スティッチング進捗ログの簡易関数"""
-    logger_instance.log_stitching_progress(current_step, total_steps, operation)
+    logger.log_stitching_progress(current_step, total_steps, operation)
 
 def log_event(event_type: str, event_data: dict = None):
     """イベントログの簡易関数"""
-    logger_instance.log_event(event_type, event_data)
+    logger.log_event(event_type, event_data)
 
 def log_error(error: Exception, context: str = "", component: str = ""):
     """エラーログの簡易関数"""
-    logger_instance.log_error_with_context(error, context, component)
+    logger.log_error_with_context(error, context, component)
 
 
 # 使用例

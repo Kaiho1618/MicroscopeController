@@ -66,7 +66,6 @@ class MockControllerService:
             self.move_to(event.target_pos[0], event.target_pos[1], event.is_relative)
             # Could publish a MoveCompletedEvent here if needed
         except Exception as e:
-            from application.event_bus import ErrorEvent
             error_event = ErrorEvent(error_message=f"Failed to move to position: {str(e)}")
             event_bus.publish(error_event)
 
@@ -229,7 +228,7 @@ class ControllerService:
         self._ensure_ready()
 
         fast = self.config["stage"]["speed"][speed_level.value]
-        accelation_time = self.config["stage"]["speed"]["accelation_time"]
+        acceleration_time = self.config["stage"]["speed"]["acceleration_time"]
         slow = fast // 10  # slow = fast / 10
         if fast >= 50:  # fast rangeのslowの範囲は50~20000
             range_setting = 2  # high speed range
@@ -238,7 +237,7 @@ class ControllerService:
             range_setting = 1  # low speed range
             slow = max(1, slow)
 
-        command = f"D:{range_setting}S{slow}F{fast}R{accelation_time}S{slow}F{fast}R{accelation_time}"
+        command = f"D:{range_setting}S{slow}F{fast}R{acceleration_time}S{slow}F{fast}R{acceleration_time}"
         self._send_command(command) 
 
     def start_move(self, speed: float, degree: float):

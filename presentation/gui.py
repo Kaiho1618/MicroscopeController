@@ -61,6 +61,8 @@ class MicroscopeGUI:
         # Auto capture timer
         self.auto_capture_timer = None
         self.auto_capture_active = False
+        self.consecutive_capture_errors = 0  # Track consecutive errors
+        self.max_consecutive_errors = 3  # Stop after this many consecutive errors
 
         # Click-to-move mode
         self.click_to_move_active = False
@@ -586,6 +588,7 @@ class MicroscopeGUI:
         """Start automatic image capture"""
         if not self.auto_capture_active:
             self.auto_capture_active = True
+            self.consecutive_capture_errors = 0  # Reset error counter
             self.auto_capture_button.configure(text="Capture Image")
             self.auto_capture_status.configure(text="Live View: ON")
             self.log_event("Auto capture started")
@@ -599,7 +602,7 @@ class MicroscopeGUI:
                 self.root.after_cancel(self.auto_capture_timer)
                 self.auto_capture_timer = None
             self.auto_capture_button.configure(text="Live View")
-            self.auto_capture_status.configure(text="LIve View: OFF")
+            self.auto_capture_status.configure(text="Live View: OFF")
             self.log_event("Auto capture stopped")
 
     def schedule_next_capture(self):
@@ -613,11 +616,21 @@ class MicroscopeGUI:
             # Capture image using manual controller (without file dialog)
             result = self.manual_controller.capture_image()
             if result is not None:
+                # Success - reset error counter
+                self.consecutive_capture_errors = 0
                 # Note: We don't save to file during auto capture, just display
                 pass  # The image will be displayed via the event system
+            else:
+                # Capture failed
+                self.consecutive_capture_errors += 1
+                if self.consecutive_capture_errors >= self.max_consecutive_errors:
+                    self.stop_auto_capture()
+                    self.log_event(f"Auto-capture stopped after {self.max_consecutive_errors} consecutive errors")
+                    return  # Don't schedule next capture
 
-            # Schedule next capture
-            self.schedule_next_capture()
+            # Schedule next capture only if still active (may have been stopped by error)
+            if self.auto_capture_active:
+                self.schedule_next_capture()
 
     def toggle_camera_connection(self):
         """Toggle camera connection on/off"""
@@ -743,6 +756,15 @@ class MicroscopeGUI:
     def on_error(self, event: ErrorEvent):
         """Handle error event"""
         self.log_event(f"ERROR: {event.error_message}")
+
+        # If it's a camera-related error and auto-capture is active, stop auto-capture
+        error_msg_lower = event.error_message.lower()
+        if ("camera" in error_msg_lower and "not connected" in error_msg_lower) or \
+           ("failed to capture" in error_msg_lower):
+            if self.auto_capture_active:
+                self.stop_auto_capture()
+                self.log_event("Auto-capture stopped due to camera error")
+
         messagebox.showerror("Error", event.error_message)
 
     def on_start_move(self, event: StartMoveEvent):
@@ -775,8 +797,8 @@ class MicroscopeGUI:
             # Call check_status which will publish PositionUpdateEvent
             self.controller_service.check_status()
         except Exception as e:
-            # Silently handle errors to avoid spamming the log
-            pass
+            # Log errors but don't display to avoid spamming the UI
+            print(f"Warning: Position update failed: {e}")
 
         # Schedule next update in 1000ms (1 second)
         self.position_update_timer = self.root.after(1000, self.update_position)

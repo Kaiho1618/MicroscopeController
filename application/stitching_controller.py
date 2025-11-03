@@ -302,10 +302,11 @@ class StitchingController:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
         # Get data directory from config
-        data_dir = "data/images"
+        data_dir = self.config.get('data_directory', 'data')
+        images_dir = os.path.join(data_dir, "images")
 
         # Create folder path
-        folder_path = os.path.join(data_dir, f"stitching_{timestamp}")
+        folder_path = os.path.join(images_dir, f"stitching_{timestamp}")
         os.makedirs(folder_path, exist_ok=True)
 
         # Save each image

@@ -8,7 +8,7 @@ camera:
     x10: [1.314, 0.831]     # 10x倍率時の撮影範囲 (mm)
     x20: [0.653, 0.415]     # 20x倍率時の撮影範囲 (mm)
     x50: [0.261, 0.168]     # 50x倍率時の撮影範囲 (mm)
-    x100: [0.132, 0.84]    # 100x倍率時の撮影範囲 (mm)
+    x100: [0.132, 0.084]    # 100x倍率時の撮影範囲 (mm)
 
 # ステージ設定
 stage:
@@ -27,7 +27,7 @@ stage:
     s4: 5000
     s5: 10000
     s6: 20000
-    accelation_time: 200  # 加減速時間（ms）
+    acceleration_time: 200  # 加減速時間（ms）
 
 # スティッチング設定
 stitching:
@@ -38,6 +38,14 @@ stitching:
   compression_quality: 95   # 圧縮品質 (1-100)
   auto_blend: true          # 自動ブレンド
   blend_method: "linear"    # ブレンド方式 (linear/multiband/feather)
+  feather_pixels: 50        # ブレンド時のフェザーピクセル数
+  # アライメント品質設定
+  alignment_quality:
+    min_matches: 10         # 最小特徴点マッチ数
+    min_good_matches: 4     # 最小良質マッチ数（フィルタ後）
+    max_match_distance: 150  # 最大マッチ距離（ピクセル）
+    lowe_ratio: 0.75        # Lowe's ratio test threshold
+    min_confidence: 0.1     # 最小信頼度（phase correlation）
 
 # GUI設定
 gui:

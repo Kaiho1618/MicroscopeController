@@ -1,19 +1,26 @@
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Optional
 import cv2
 import numpy as np
 
 from application.event_bus import event_bus, ErrorEvent
 from enums.enums import StitchingType
+from utils.logger import logger
+
 
 class ImageProcessService:
-    """Production image processing service"""
+    """Production image processing service for image concatenation and stitching"""
+
+    # Shared ORB detector for efficiency (class variable)
+    _orb = None
 
     def __init__(self, config: Dict[str, Any]):
         self.config = config
+        # Use shared ORB detector instead of creating new one for each instance
+        if ImageProcessService._orb is None:
+            ImageProcessService._orb = cv2.ORB_create()
+        self.orb = ImageProcessService._orb
 
-        self.orb = cv2.ORB_create()
-
-    def concatenate(self, stitching_type: str, images: List[Any], grid_size_x: int, grid_size_y: int) -> Any:
+    def concatenate(self, stitching_type: str, images: List[np.ndarray], grid_size_x: int, grid_size_y: int) -> Optional[np.ndarray]:
         """
         Concatenate images for stitching
 
@@ -42,7 +49,7 @@ class ImageProcessService:
             event_bus.publish(error_event)
             return None
 
-    def _concatenate_grid(self, images: List[Any], grid_size_x: int, grid_size_y: int) -> Any:
+    def _concatenate_grid(self, images: List[np.ndarray], grid_size_x: int, grid_size_y: int) -> np.ndarray:
         """Simple grid concatenation with overlap from config"""
         if len(images) != grid_size_x * grid_size_y:
             raise ValueError(f"Expected {grid_size_x * grid_size_y} images, got {len(images)}")
@@ -109,7 +116,7 @@ class ImageProcessService:
 
         return stitched_image
 
-    def _concatenate_grid2(self, images: List[Any], grid_size_x: int, grid_size_y: int, stitching_type: str) -> Any:
+    def _concatenate_grid2(self, images: List[np.ndarray], grid_size_x: int, grid_size_y: int, stitching_type: str) -> np.ndarray:
         """Grid concatenation with alignment and blending"""
         if len(images) != grid_size_x * grid_size_y:
             raise ValueError(f"Expected {grid_size_x * grid_size_y} images, got {len(images)}")
@@ -130,8 +137,8 @@ class ImageProcessService:
             img_height, img_width = processed_images[0].shape
             channels = 1
             # Convert grayscale to 3-channel for processing
-            processed_images = [cv2.cvtColor(img, cv2.COLOR_GRAY2BGR) if len(img.shape) == 2 else img 
-                            for img in processed_images]
+            processed_images = [cv2.cvtColor(img, cv2.COLOR_GRAY2BGR) if len(img.shape) == 2 else img
+                                for img in processed_images]
 
 
         # Get overlap ratio from config
@@ -148,8 +155,7 @@ class ImageProcessService:
 
         # Create canvas and blend images
         stitched_image = self._blend_images(
-            processed_images, aligned_positions,
-            grid_size_x, grid_size_y, img_width, img_height
+            processed_images, aligned_positions, img_width, img_height
         )
 
         # Convert back to grayscale if original was grayscale
@@ -159,13 +165,28 @@ class ImageProcessService:
         return stitched_image
 
     def _align_grid(self, images: List[np.ndarray], grid_x: int, grid_y: int,
-                    overlap_x: int, overlap_y: int, img_w: int, img_h: int, stitching_type: str) -> List[Tuple[int, int]]:
+                    overlap_x: int, overlap_y: int, img_w: int, img_h: int,
+                    stitching_type: str) -> List[Tuple[int, int]]:
         """
-        Align images using phase correlation on overlap regions
-        以下の順に並べていく
+        Align images using alignment algorithms on overlap regions
+
+        The images are arranged in the following order:
         123
         456
         789
+
+        Args:
+            images: List of images in grid order
+            grid_x: Number of images in x direction
+            grid_y: Number of images in y direction
+            overlap_x: Horizontal overlap in pixels
+            overlap_y: Vertical overlap in pixels
+            img_w: Image width
+            img_h: Image height
+            stitching_type: Type of alignment algorithm to use
+
+        Returns:
+            List of (x, y) positions for each image
         """
         # Pre-allocate positions array to match image indices
         num_images = grid_x * grid_y
@@ -198,7 +219,6 @@ class ImageProcessService:
                 if x > 0:  # Left neighbor exists
                     ref_idx = current_idx - 1
                     ref_img = images[ref_idx]
-                    ref_pos = positions[ref_idx]
 
                     ref_region = ref_img[:, -overlap_x:]
                     curr_region = current_img[:, :overlap_x]
@@ -207,7 +227,6 @@ class ImageProcessService:
                 if y > 0:  # Top neighbor exists
                     ref_idx = current_idx - grid_x
                     ref_img = images[ref_idx]
-                    ref_pos = positions[ref_idx]
 
                     ref_region = ref_img[-overlap_y:, :]
                     curr_region = current_img[:overlap_y, :]
@@ -228,23 +247,32 @@ class ImageProcessService:
                     new_x -= top_shift[0]
                     new_y -= top_shift[1]
                 else:
-                    print(f"INFO: Using default grid position for image {current_idx}. "
-                          f"Manual inspection recommended.\n")
+                    logger.info(f"Using default grid position for image {current_idx}. "
+                                f"Manual inspection recommended.")
 
                 positions[current_idx] = (int(new_x), int(new_y))
 
         return positions
 
-    def _find_alignment(self, img1: np.ndarray, img2: np.ndarray, stitching_type: str) -> Tuple[int, int]:
+    def _find_alignment(self, img1: np.ndarray, img2: np.ndarray, stitching_type: str) -> Optional[Tuple[int, int]]:
         """
         Find alignment between two overlapping regions with quality guarantees
-        Returns (shift_x, shift_y) or None if alignment quality is poor
-        """
-        MIN_MATCHES = 10
-        MIN_GOOD_MATCHES = 4
 
-        # これ以上の距離のマッチは失敗とみなし無効にする
-        MAX_MATCH_DISTANCE = min(img1.shape[0], img1.shape[1])  # Dynamic threshold based on image size
+        Args:
+            img1: First image region
+            img2: Second image region
+            stitching_type: Type of stitching method to use
+
+        Returns:
+            Tuple of (shift_x, shift_y) or None if alignment quality is poor
+        """
+        # Get quality thresholds from config
+        quality_config = self.config.get('stitching', {}).get('alignment_quality', {})
+        MIN_MATCHES = quality_config.get('min_matches', 10)
+        MIN_GOOD_MATCHES = quality_config.get('min_good_matches', 4)
+        MAX_MATCH_DISTANCE = quality_config.get('max_match_distance', 150)
+        LOWE_RATIO = quality_config.get('lowe_ratio', 0.75)
+        MIN_CONFIDENCE = quality_config.get('min_confidence', 0.1)
 
         # Convert to grayscale if needed
         if len(img1.shape) == 3:
@@ -262,7 +290,7 @@ class ImageProcessService:
                 np.float32(binary1),
                 np.float32(binary2),
             )
-            if response < 0.1:  # Threshold for confidence
+            if response < MIN_CONFIDENCE:  # Threshold for confidence
                 return None
 
         elif stitching_type == StitchingType.FEATURE_BASED.value:
@@ -272,8 +300,8 @@ class ImageProcessService:
 
             # Check if we have enough keypoints
             if des1 is None or des2 is None or len(kp1) < MIN_MATCHES or len(kp2) < MIN_MATCHES:
-                print(f"WARNING: Not enough features detected (kp1={len(kp1) if des1 is not None else 0}, "
-                    f"kp2={len(kp2) if des2 is not None else 0}). Cannot align.")
+                logger.warning(f"Not enough features detected (kp1={len(kp1) if des1 is not None else 0}, "
+                               f"kp2={len(kp2) if des2 is not None else 0}). Cannot align.")
                 return None
 
             # Match features using BFMatcher
@@ -285,12 +313,12 @@ class ImageProcessService:
             for match_pair in matches:
                 if len(match_pair) == 2:
                     m, n = match_pair
-                    if m.distance < 0.75 * n.distance and m.distance < MAX_MATCH_DISTANCE:
+                    if m.distance < LOWE_RATIO * n.distance and m.distance < MAX_MATCH_DISTANCE:
                         good_matches.append(m)
 
             # Check if we have enough good matches
             if len(good_matches) < MIN_GOOD_MATCHES:
-                print(f"WARNING: Not enough good matches ({len(good_matches)}). Cannot align reliably.")
+                logger.warning(f"Not enough good matches ({len(good_matches)}). Cannot align reliably.")
                 return None
 
             # Calculate shifts from matched keypoints
@@ -313,7 +341,7 @@ class ImageProcessService:
         return (int(round(shift[0])), int(round(shift[1])))
 
     def _blend_images(self, images: List[np.ndarray], positions: List[Tuple[int, int]],
-                    grid_x: int, grid_y: int, img_w: int, img_h: int) -> np.ndarray:
+                      img_w: int, img_h: int) -> np.ndarray:
         """Blend images with feathering in overlap regions"""
         # Calculate canvas size
         max_x = max(pos[0] + img_w for pos in positions)
@@ -365,26 +393,27 @@ class ImageProcessService:
 
         return output.astype(np.uint8)
 
-
-    def _create_weight_mask(self, height: int, width: int, feather_pixels: int = 50) -> np.ndarray:
+    def _create_weight_mask(self, height: int, width: int, feather_pixels: int = None) -> np.ndarray:
         """Create a weight mask with feathering at edges"""
+        if feather_pixels is None:
+            feather_pixels = self.config.get('stitching', {}).get('feather_pixels', 50)
+
         mask = np.ones((height, width), dtype=np.float32)
-        
+
         # Apply feathering to all edges
         for i in range(feather_pixels):
             weight = i / feather_pixels
             mask[i, :] = np.minimum(mask[i, :], weight)  # Top
-            mask[height-1-i, :] = np.minimum(mask[height-1-i, :], weight)  # Bottom
+            mask[height - 1 - i, :] = np.minimum(mask[height - 1 - i, :], weight)  # Bottom
             mask[:, i] = np.minimum(mask[:, i], weight)  # Left
-            mask[:, width-1-i] = np.minimum(mask[:, width-1-i], weight)  # Right
-        
+            mask[:, width - 1 - i] = np.minimum(mask[:, width - 1 - i], weight)  # Right
+
         return mask
 
-
-    def _reorder_images_zigzag(self, images: List[Any], grid_x: int, grid_y: int) -> List[Any]:
+    def _reorder_images_zigzag(self, images: List[np.ndarray], grid_x: int, grid_y: int) -> List[np.ndarray]:
         """
         Reorder images from zigzag capture order to grid coordinate order
-        
+
         Example:
         123
         654
@@ -410,5 +439,3 @@ class ImageProcessService:
                 reordered_images[grid_index] = images[zigzag_index]
 
         return reordered_images
-
-   

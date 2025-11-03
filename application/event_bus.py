@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Any, Callable, Dict, List
 import threading
 from enums.enums import ProgressStatus
+from utils.logger import logger
 
 
 @dataclass
@@ -72,7 +73,7 @@ class EventBus:
             try:
                 callback(event)
             except Exception as e:
-                print(f"Error in event callback: {e}")
+                logger.error(f"Error in event callback for {event_type.__name__}: {e}", exc_info=True)
 
     def clear_all_subscribers(self):
         with self._lock:

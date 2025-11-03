@@ -1,4 +1,4 @@
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from .event_bus import event_bus, ErrorEvent
 
 
@@ -35,7 +35,7 @@ class ManualController:
             error_event = ErrorEvent(error_message=f"Failed to start move: {str(e)}")
             event_bus.publish(error_event)
 
-    def _key_to_direction(self, key: str) -> float:
+    def _key_to_direction(self, key: str) -> Optional[float]:
         """Convert keyboard character to direction in degrees"""
         key_map = {
             'w': 90,     # Up
