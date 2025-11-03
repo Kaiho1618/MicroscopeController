@@ -26,7 +26,7 @@ class ProgressStatus(Enum):
 
 class StitchingType(Enum):
     SIMPLE = "simple"
-    ADVANCED = "advanced"
+    ADVANCED = "phase_match"
     FEATURE_BASED = "feature_based"
 
 

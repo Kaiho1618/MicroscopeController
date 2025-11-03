@@ -18,7 +18,7 @@ class ImageProcessService:
         Concatenate images for stitching
 
         Args:
-            stitching_type: Type of stitching ("grid", "advanced", etc.)
+            stitching_type: Type of stitching ("simple", "phase_match", "feature_based")
             images: List of images to concatenate
             grid_size_x: Number of images in X direction
             grid_size_y: Number of images in Y direction
@@ -256,7 +256,7 @@ class ImageProcessService:
         _, binary2 = cv2.threshold(gray2, 0, 255, cv2.THRESH_OTSU)
 
         if stitching_type == StitchingType.ADVANCED.value:
-            # Use phase correlation for advanced stitching
+            # Use phase correlation for phase_match stitching
             shift, response = cv2.phaseCorrelate(
                 np.float32(binary1),
                 np.float32(binary2),

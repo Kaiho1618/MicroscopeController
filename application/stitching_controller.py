@@ -44,7 +44,7 @@ class StitchingController:
         param grid_size_y: y方向の撮影枚数
         param magnitude: 顕微鏡の倍率
         param corner: スティッチングの開始位置
-        param stitching_type: スティッチングのタイプ (simple/advanced)
+        param stitching_type: スティッチングのタイプ (simple/phase_match/feature_based)
 
         return success_flag: bool
         """
@@ -244,7 +244,7 @@ class StitchingController:
     def re_stitch(self, stitching_type: StitchingType) -> bool:
         """
         Re-stitch the last captured images with a different stitching type
-        param stitching_type: スティッチングのタイプ (simple/advanced)
+        param stitching_type: スティッチングのタイプ (simple/phase_match/feature_based)
 
         return success_flag: bool
         """
