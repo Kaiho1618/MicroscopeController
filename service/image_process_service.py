@@ -192,7 +192,8 @@ class ImageProcessService:
                     new_x = positions[current_idx - grid_x][0]
                     new_y = positions[current_idx - grid_x][1] + img_h - overlap_y
 
-                alignment_failed = False
+                left_shift = None
+                top_shift = None
 
                 if x > 0:  # Left neighbor exists
                     ref_idx = current_idx - 1
@@ -201,13 +202,7 @@ class ImageProcessService:
 
                     ref_region = ref_img[:, -overlap_x:]
                     curr_region = current_img[:, :overlap_x]
-                    print(f"\nAligning image {current_idx} with left neighbor {ref_idx}:")
                     left_shift = self._find_alignment(ref_region, curr_region, stitching_type)
-
-                    if left_shift is not None:
-                        new_y = ref_pos[1] - left_shift[1]
-                    else:
-                        alignment_failed = True
 
                 if y > 0:  # Top neighbor exists
                     ref_idx = current_idx - grid_x
@@ -216,15 +211,23 @@ class ImageProcessService:
 
                     ref_region = ref_img[-overlap_y:, :]
                     curr_region = current_img[:overlap_y, :]
-                    print(f"\nAligning image {current_idx} with top neighbor {ref_idx}:")
                     top_shift = self._find_alignment(ref_region, curr_region, stitching_type)
 
-                    if top_shift is not None:
-                        new_x = ref_pos[0] - top_shift[0]
-                    else:
-                        alignment_failed = True
-
-                if alignment_failed:
+                # 水平方向の移動は上画像との合わせ込み優先
+                # 垂直方向の移動は左画像との合わせ込み優先
+                # 片方が失敗した場合はもう片方の情報を使う
+                is_left_aligned = left_shift is not None
+                is_top_aligned = top_shift is not None
+                if is_left_aligned and is_top_aligned:
+                    new_x -= top_shift[0]
+                    new_y -= left_shift[1]
+                elif is_left_aligned and not is_top_aligned:
+                    new_x -= left_shift[0]
+                    new_y -= left_shift[1]
+                elif not is_left_aligned and is_top_aligned:
+                    new_x -= top_shift[0]
+                    new_y -= top_shift[1]
+                else:
                     print(f"INFO: Using default grid position for image {current_idx}. "
                           f"Manual inspection recommended.\n")
 
@@ -237,13 +240,11 @@ class ImageProcessService:
         Find alignment between two overlapping regions with quality guarantees
         Returns (shift_x, shift_y) or None if alignment quality is poor
         """
-        # Get quality thresholds from config
-        quality_config = self.config.get('stitching', {}).get('alignment_quality', {})
-        MIN_MATCHES = quality_config.get('min_matches', 10)
-        MIN_GOOD_MATCHES = quality_config.get('min_good_matches', 4)
-        MAX_MATCH_DISTANCE = quality_config.get('max_match_distance', 50)
-        OUTLIER_TOLERANCE = quality_config.get('outlier_tolerance', 20)
-        MIN_CONFIDENCE = quality_config.get('min_confidence', 0.3)
+        MIN_MATCHES = 10
+        MIN_GOOD_MATCHES = 4
+
+        # これ以上の距離のマッチは失敗とみなし無効にする
+        MAX_MATCH_DISTANCE = min(img1.shape[0], img1.shape[1])  # Dynamic threshold based on image size
 
         # Convert to grayscale if needed
         if len(img1.shape) == 3:
@@ -319,49 +320,49 @@ class ImageProcessService:
         max_y = max(pos[1] + img_h for pos in positions)
         min_x = min(pos[0] for pos in positions)
         min_y = min(pos[1] for pos in positions)
-        
+
         canvas_w = max_x - min_x
         canvas_h = max_y - min_y
-        
+
         # Adjust positions to canvas
         adjusted_positions = [(x - min_x, y - min_y) for x, y in positions]
-        
+
         # Create output and weight accumulator
         output = np.zeros((canvas_h, canvas_w, 3), dtype=np.float32)
         weights = np.zeros((canvas_h, canvas_w), dtype=np.float32)
-        
+
         # Create feathering weight mask
         weight_mask = self._create_weight_mask(img_h, img_w)
-        
+
         # Blend each image
         for idx, (x, y) in enumerate(adjusted_positions):
             img_idx = idx
-            
+
             img = images[img_idx].astype(np.float32)
-            
+
             # Ensure we don't go out of bounds
             y_end = min(y + img_h, canvas_h)
             x_end = min(x + img_w, canvas_w)
             y_start = max(0, y)
             x_start = max(0, x)
-            
+
             # Crop weight mask if at edges
             mask_y_start = y_start - y
             mask_x_start = x_start - x
             mask_y_end = mask_y_start + (y_end - y_start)
             mask_x_end = mask_x_start + (x_end - x_start)
-            
+
             current_mask = weight_mask[mask_y_start:mask_y_end, mask_x_start:mask_x_end]
             current_img = img[mask_y_start:mask_y_end, mask_x_start:mask_x_end]
-            
+
             # Accumulate weighted image
             output[y_start:y_end, x_start:x_end] += current_img * current_mask[:, :, np.newaxis]
             weights[y_start:y_end, x_start:x_end] += current_mask
-        
+
         # Normalize by weights
         weights[weights == 0] = 1  # Avoid division by zero
         output = output / weights[:, :, np.newaxis]
-        
+
         return output.astype(np.uint8)
 
 
