@@ -32,7 +32,7 @@ stage:
 # スティッチング設定
 stitching:
   type: "phase_match"              # スティッチングタイプ (simple/phase_match/feature_based)
-  overlap_ratio: 0.1        # 画像重複率 (0.0-0.5)
+  overlap_ratio: 0.2        # 画像重複率 (0.0-0.5)
   max_images: 100           # 最大画像数
   image_format: "PNG"       # 保存形式 (PNG/JPEG/TIFF)
   compression_quality: 95   # 圧縮品質 (1-100)

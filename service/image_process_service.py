@@ -241,8 +241,8 @@ class ImageProcessService:
                     new_x = positions[current_idx - grid_x][0]
                     new_y = positions[current_idx - grid_x][1] + img_h - overlap_y
 
-                left_shift = None
-                top_shift = None
+                pos_left = None
+                pos_top = None
 
                 if x > 0:  # Left neighbor exists
                     ref_idx = current_idx - 1
@@ -250,7 +250,12 @@ class ImageProcessService:
 
                     ref_region = ref_img[:, -overlap_x:]
                     curr_region = current_img[:, :overlap_x]
-                    left_shift = self._find_alignment(ref_region, curr_region, stitching_type)
+                    shift = self._find_alignment(ref_region, curr_region, stitching_type)
+
+                    if shift is not None:
+                        new_x = positions[ref_idx][0] + img_w - overlap_x - shift[0]
+                        new_y = positions[ref_idx][1] - shift[1]
+                        pos_left = (int(new_x), int(new_y))
 
                 if y > 0:  # Top neighbor exists
                     ref_idx = current_idx - grid_x
@@ -258,24 +263,27 @@ class ImageProcessService:
 
                     ref_region = ref_img[-overlap_y:, :]
                     curr_region = current_img[:overlap_y, :]
-                    top_shift = self._find_alignment(ref_region, curr_region, stitching_type)
-
+                    shift = self._find_alignment(ref_region, curr_region, stitching_type)
+                    if shift is not None:
+                        new_x = positions[ref_idx][0] - shift[0]
+                        new_y = positions[ref_idx][1] + img_h - overlap_y - shift[1]
+                        pos_top = (int(new_x), int(new_y))
                 # 水平方向の移動は上画像との合わせ込み優先
                 # 垂直方向の移動は左画像との合わせ込み優先
                 # 片方が失敗した場合はもう片方の情報を使う
-                is_left_aligned = left_shift is not None
-                is_top_aligned = top_shift is not None
+                is_left_aligned = pos_left is not None
+                is_top_aligned = pos_top is not None
                 if is_left_aligned and is_top_aligned:
-                    new_x -= top_shift[0]
-                    new_y -= left_shift[1]
+                    new_x = pos_top[0]
+                    new_y = pos_left[1]
                     alignment_success[current_idx] = True
                 elif is_left_aligned and not is_top_aligned:
-                    new_x -= left_shift[0]
-                    new_y -= left_shift[1]
+                    new_x = pos_left[0]
+                    new_y = pos_left[1]
                     alignment_success[current_idx] = True
                 elif not is_left_aligned and is_top_aligned:
-                    new_x -= top_shift[0]
-                    new_y -= top_shift[1]
+                    new_x = pos_top[0]
+                    new_y = pos_top[1]
                     alignment_success[current_idx] = True
                 else:
                     logger.info(
@@ -316,6 +324,9 @@ class ImageProcessService:
 
         _, binary1 = cv2.threshold(gray1, 0, 255, cv2.THRESH_OTSU)
         _, binary2 = cv2.threshold(gray2, 0, 255, cv2.THRESH_OTSU)
+
+        cv2.imwrite("output/debug_binary1.png", binary1)
+        cv2.imwrite("output/debug_binary2.png", binary2)
 
         if stitching_type == StitchingType.ADVANCED.value:
             # Use phase correlation for phase_match stitching
