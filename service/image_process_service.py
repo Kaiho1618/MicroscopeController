@@ -158,7 +158,7 @@ class ImageProcessService:
         overlap_y = int(img_height * overlap_ratio)
 
         # Build grid with alignment
-        aligned_positions = self._align_grid(
+        aligned_positions, alignment_success = self._align_grid(
             processed_images,
             grid_size_x,
             grid_size_y,
@@ -169,8 +169,10 @@ class ImageProcessService:
             stitching_type,
         )
 
-        # Create canvas and blend images
-        stitched_image = self._blend_images(processed_images, aligned_positions, img_width, img_height)
+        # Create canvas and blend images (only blend where alignment succeeded)
+        stitched_image = self._blend_images(
+            processed_images, aligned_positions, alignment_success, img_width, img_height
+        )
 
         # Convert back to grayscale if original was grayscale
         if channels == 1:
@@ -188,7 +190,7 @@ class ImageProcessService:
         img_w: int,
         img_h: int,
         stitching_type: str,
-    ) -> List[Tuple[int, int]]:
+    ) -> Tuple[List[Tuple[int, int]], List[bool]]:
         """
         Align images using alignment algorithms on overlap regions
 
@@ -208,14 +210,18 @@ class ImageProcessService:
             stitching_type: Type of alignment algorithm to use
 
         Returns:
-            List of (x, y) positions for each image
+            Tuple of (positions, alignment_success) where:
+            - positions: List of (x, y) positions for each image
+            - alignment_success: List of booleans indicating if alignment was calculated
         """
         # Pre-allocate positions array to match image indices
         num_images = grid_x * grid_y
         positions = [None] * num_images
+        alignment_success = [False] * num_images
 
-        # Start with first image at origin
+        # Start with first image at origin (first image is always "successful")
         positions[0] = (0, 0)
+        alignment_success[0] = True
 
         for y in range(grid_y):
             for x in range(grid_x):
@@ -262,20 +268,24 @@ class ImageProcessService:
                 if is_left_aligned and is_top_aligned:
                     new_x -= top_shift[0]
                     new_y -= left_shift[1]
+                    alignment_success[current_idx] = True
                 elif is_left_aligned and not is_top_aligned:
                     new_x -= left_shift[0]
                     new_y -= left_shift[1]
+                    alignment_success[current_idx] = True
                 elif not is_left_aligned and is_top_aligned:
                     new_x -= top_shift[0]
                     new_y -= top_shift[1]
+                    alignment_success[current_idx] = True
                 else:
                     logger.info(
                         f"Using default grid position for image {current_idx}. " f"Manual inspection recommended."
                     )
+                    alignment_success[current_idx] = False
 
                 positions[current_idx] = (int(new_x), int(new_y))
 
-        return positions
+        return positions, alignment_success
 
     def _find_alignment(self, img1: np.ndarray, img2: np.ndarray, stitching_type: str) -> Optional[Tuple[int, int]]:
         """
@@ -371,9 +381,14 @@ class ImageProcessService:
         return (int(round(shift[0])), int(round(shift[1])))
 
     def _blend_images(
-        self, images: List[np.ndarray], positions: List[Tuple[int, int]], img_w: int, img_h: int
+        self,
+        images: List[np.ndarray],
+        positions: List[Tuple[int, int]],
+        alignment_success: List[bool],
+        img_w: int,
+        img_h: int,
     ) -> np.ndarray:
-        """Blend images with feathering in overlap regions"""
+        """Blend images with feathering in overlap regions where alignment succeeded"""
         # Calculate canvas size
         max_x = max(pos[0] + img_w for pos in positions)
         max_y = max(pos[1] + img_h for pos in positions)
@@ -390,14 +405,15 @@ class ImageProcessService:
         output = np.zeros((canvas_h, canvas_w, 3), dtype=np.float32)
         weights = np.zeros((canvas_h, canvas_w), dtype=np.float32)
 
-        # Create feathering weight mask
-        weight_mask = self._create_weight_mask(img_h, img_w)
+        # Create feathering weight mask for aligned images
+        feathered_mask = self._create_weight_mask(img_h, img_w)
 
-        # Blend each image
+        # First pass: blend only aligned images
         for idx, (x, y) in enumerate(adjusted_positions):
-            img_idx = idx
+            if not alignment_success[idx]:
+                continue  # Skip non-aligned images in first pass
 
-            img = images[img_idx].astype(np.float32)
+            img = images[idx].astype(np.float32)
 
             # Ensure we don't go out of bounds
             y_end = min(y + img_h, canvas_h)
@@ -411,16 +427,40 @@ class ImageProcessService:
             mask_y_end = mask_y_start + (y_end - y_start)
             mask_x_end = mask_x_start + (x_end - x_start)
 
-            current_mask = weight_mask[mask_y_start:mask_y_end, mask_x_start:mask_x_end]
+            current_mask = feathered_mask[mask_y_start:mask_y_end, mask_x_start:mask_x_end]
             current_img = img[mask_y_start:mask_y_end, mask_x_start:mask_x_end]
 
             # Accumulate weighted image
             output[y_start:y_end, x_start:x_end] += current_img * current_mask[:, :, np.newaxis]
             weights[y_start:y_end, x_start:x_end] += current_mask
 
-        # Normalize by weights
-        weights[weights == 0] = 1  # Avoid division by zero
-        output = output / weights[:, :, np.newaxis]
+        # Normalize by weights for blended regions
+        blend_mask = weights > 0
+        output[blend_mask] = output[blend_mask] / weights[blend_mask, np.newaxis]
+
+        # Second pass: directly place non-aligned images (no blending)
+        for idx, (x, y) in enumerate(adjusted_positions):
+            if alignment_success[idx]:
+                continue  # Skip aligned images in second pass
+
+            img = images[idx].astype(np.float32)
+
+            # Ensure we don't go out of bounds
+            y_end = min(y + img_h, canvas_h)
+            x_end = min(x + img_w, canvas_w)
+            y_start = max(0, y)
+            x_start = max(0, x)
+
+            # Crop image if at edges
+            img_y_start = y_start - y
+            img_x_start = x_start - x
+            img_y_end = img_y_start + (y_end - y_start)
+            img_x_end = img_x_start + (x_end - x_start)
+
+            current_img = img[img_y_start:img_y_end, img_x_start:img_x_end]
+
+            # Directly place image without blending
+            output[y_start:y_end, x_start:x_end] = current_img
 
         return output.astype(np.uint8)
 
