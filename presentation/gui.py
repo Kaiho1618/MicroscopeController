@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import os
-from PIL import Image, ImageTk
+from PIL import Image, ImageTk, ImageDraw, ImageFont  # noqa: F401
 import io
 import cv2
 import numpy as np
@@ -102,8 +102,38 @@ class MicroscopeGUI:
 
         self.displayed_image = None
 
+        # Scale bar image cache
+        self.scale_bar_image = None
+
         self.on_speed_change(None)  # Initialize speed setting
         self.start_auto_capture()
+
+        # scale barの設定
+        self.scale_bar_image = cv2.imread("presentation/img/scalebar5.png", cv2.IMREAD_UNCHANGED)
+        # 倍率ごとのscale barの長さを計算しておく
+        self.scale_bar_length = dict()  # mm
+        for mag in CameraMagnitude:
+            image_size_mm = self.config["camera"]["image_size"].get(mag.value, [2.711, 1.721])
+            scale_bar_length = self._calc_scale_bar_size(image_size_mm[0])
+            self.scale_bar_length[mag.value] = scale_bar_length
+
+        # \mu を表示するためのフォント設定
+        self.font = None
+        # Try multiple font options that support Unicode
+        font_options = [
+            "arial.ttf",
+            "Arial.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "C:/Windows/Fonts/arial.ttf",
+            "/System/Library/Fonts/Helvetica.ttc"
+        ]
+
+        for font_path in font_options:
+            try:
+                _ = ImageFont.truetype(font_path)
+                self.font_path = font_path
+            except Exception:
+                continue
 
     def setup_gui(self):
         # Main frame with less padding
@@ -266,6 +296,13 @@ class MicroscopeGUI:
             image_frame, text="Click to Move", variable=self.click_to_move_var, command=self.toggle_click_to_move
         )
         click_checkbox.grid(row=1, column=0, columnspan=3, sticky=tk.W, pady=(5, 0))
+
+        # Scale bar checkbox
+        self.scale_bar_var = tk.BooleanVar(value=False)
+        scale_bar_checkbox = ttk.Checkbutton(
+            image_frame, text="Show Scale Bar", variable=self.scale_bar_var
+        )
+        scale_bar_checkbox.grid(row=1, column=3, sticky=tk.W, pady=(5, 0), padx=(10, 0))
 
         # Camera connection button and status
         self.camera_button = ttk.Button(image_frame, text="Disconnect Camera", command=self.toggle_camera_connection)
@@ -621,7 +658,7 @@ class MicroscopeGUI:
         if not self.auto_capture_active:
             self.auto_capture_active = True
             self.consecutive_capture_errors = 0  # Reset error counter
-            self.auto_capture_button.configure(text="Capture Image")
+            self.auto_capture_button.configure(text="Live View: OFF")
             self.auto_capture_status.configure(text="Live View: ON")
             self.log_event("Auto capture started")
             self.schedule_next_capture()
@@ -756,6 +793,10 @@ class MicroscopeGUI:
 
             self.displayed_image = resized_image
 
+            # Add scale bar overlay if enabled
+            if self.scale_bar_var.get():
+                resized_image = self.add_scale_bar_overlay(resized_image)
+
             # Convert back to PIL Image for tkinter
             rgb_image = cv2.cvtColor(resized_image, cv2.COLOR_BGR2RGB)
             pil_image = Image.fromarray(rgb_image)
@@ -784,6 +825,135 @@ class MicroscopeGUI:
         except Exception as e:
             self.log_event(f"Failed to display image: {str(e)}")
             self.image_label.configure(image="", text=f"Failed to display image: {str(e)}")
+
+    def add_scale_bar_overlay(self, image):
+        """Add scale bar overlay at the bottom-left corner of the image"""
+        try:
+            # Get current magnification
+            magnitude_str = self.magnitude_var.get()
+
+            # Get image size in mm from config (single image)
+            single_image_size_mm = self.config["camera"]["image_size"].get(magnitude_str, [2.711, 1.721])
+            img_width_px = image.shape[1]
+
+            # Calculate the physical width of the displayed image
+            if self.stitched_image_flag:
+                # For stitched images, calculate total physical size
+                grid_x = self.grid_x_var.get()
+                overlap_ratio = self.config["stitching"]["overlap_ratio"]
+                # Formula: size = image_size * (grid * (1 - overlap_ratio) + overlap_ratio)
+                total_width_mm = single_image_size_mm[0] * (grid_x * (1 - overlap_ratio) + overlap_ratio)
+                physical_width_mm = total_width_mm
+            else:
+                # For single images, use the single image size
+                physical_width_mm = single_image_size_mm[0]
+
+            # Calculate scale bar size
+            if self.stitched_image_flag:
+                # For stitched images, calculate appropriate scale bar length
+                scale_bar_length = self._calc_scale_bar_size(physical_width_mm)
+            else:
+                # For single images, use pre-calculated scale bar length
+                scale_bar_length = self.scale_bar_length[magnitude_str]
+
+            scale_bar_width_px = int((scale_bar_length / physical_width_mm) * img_width_px)
+
+            # Get original scale bar dimensions
+            orig_scale_bar_height, orig_scale_bar_width = self.scale_bar_image.shape[:2]
+
+            # Calculate resize ratio to maintain aspect ratio
+            resize_ratio = scale_bar_width_px / orig_scale_bar_width
+            scale_bar_height_px = int(orig_scale_bar_height * resize_ratio)
+
+            # Resize the scale bar
+            resized_scale_bar = cv2.resize(
+                self.scale_bar_image,
+                (scale_bar_width_px, scale_bar_height_px),
+                interpolation=cv2.INTER_AREA if resize_ratio < 1 else cv2.INTER_CUBIC
+            )
+
+            # Get image dimensions
+            img_height, img_width = image.shape[:2]
+
+            # Check if scale bar fits in the image
+            if scale_bar_width_px > img_width or scale_bar_height_px > img_height:
+                self.log_event("Scale bar too large for current image size")
+                return image
+
+            # Define position: bottom-left corner with small margin
+            margin = 10  # pixels from edges
+            y_start = img_height - scale_bar_height_px - margin
+            x_start = margin
+            y_end = y_start + scale_bar_height_px
+            x_end = x_start + scale_bar_width_px
+
+            # Create a copy of the image to overlay on
+            result = image.copy()
+
+            # Check if scale bar has alpha channel
+            if resized_scale_bar.shape[2] == 4:
+                # Scale bar has alpha channel - blend it properly
+                scale_bar_bgr = resized_scale_bar[:, :, :3]
+                scale_bar_alpha = resized_scale_bar[:, :, 3] / 255.0
+
+                # Get the region of interest from the image
+                roi = result[y_start:y_end, x_start:x_end]
+
+                # Blend scale bar with the image using alpha channel
+                for c in range(3):
+                    roi[:, :, c] = (
+                        scale_bar_alpha * scale_bar_bgr[:, :, c] + (1 - scale_bar_alpha) * roi[:, :, c]
+                    )
+
+                result[y_start:y_end, x_start:x_end] = roi
+            else:
+                # No alpha channel - simple overlay
+                result[y_start:y_end, x_start:x_end] = resized_scale_bar
+
+            # Add text label above the scale bar
+            # Determine the scale bar length for display
+            if scale_bar_length >= 1:
+                # Display in mm
+                scale_text = f"{scale_bar_length:.0f} mm"
+            else:
+                # Display in micro meter (using Unicode escape for mu)
+                scale_text = f"{scale_bar_length * 1000:.0f} \u00b5m"
+
+            # Use PIL to draw text with proper Unicode support
+            # Convert BGR to RGB for PIL
+            result_rgb = cv2.cvtColor(result, cv2.COLOR_BGR2RGB)
+            pil_image = Image.fromarray(result_rgb)
+            draw = ImageDraw.Draw(pil_image)
+
+            # Calculate font size based on scale bar width
+            font_size = max(18, int(scale_bar_width_px / 10))
+
+            font = ImageFont.truetype(self.font_path, font_size) if self.font_path else ImageFont.load_default()
+            
+            # Get text size using PIL
+            text_bbox = draw.textbbox((0, 0), scale_text, font=font)
+            text_width = text_bbox[2] - text_bbox[0]
+            text_height = text_bbox[3] - text_bbox[1]
+
+            # Position text centered above the scale bar
+            text_x = x_start + (scale_bar_width_px - text_width) // 2
+            text_y = y_start - text_height - 5  # 5 pixels above the scale bar
+
+            # Ensure text doesn't go off the top of the image
+            if text_y < 0:
+                text_y = y_start + 5  # Place below if needed
+
+            # Draw orange text (RGB 255,102,0)
+            draw.text((text_x, text_y), scale_text, font=font, fill=(255, 102, 0))
+
+            # Convert back to BGR for OpenCV
+            result = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
+
+            return result
+
+        except Exception as e:
+            self.log_event(f"Failed to add scale bar overlay: {str(e)}")
+            return image
 
     def on_error(self, event: ErrorEvent):
         """Handle error event"""
@@ -1000,6 +1170,7 @@ class MicroscopeGUI:
                 "last_save_directory": (
                     self.last_save_directory if self.last_save_directory else os.path.expanduser("~")
                 ),
+                "show_scale_bar": self.scale_bar_var.get(),
             }
             self.settings_manager.save_settings(settings)
         except Exception as e:
@@ -1020,6 +1191,7 @@ class MicroscopeGUI:
             self.y_var.set(settings.get("y_position", 0.0))
             self.relative_var.set(settings.get("relative", True))
             self.last_save_directory = settings.get("last_save_directory", os.path.expanduser("~"))
+            self.scale_bar_var.set(settings.get("show_scale_bar", False))
 
         except Exception as e:
             print(f"Failed to load settings: {e}")
@@ -1102,6 +1274,23 @@ class MicroscopeGUI:
 
         except Exception as e:
             self.log_event(f"Click-to-move error: {str(e)}")
+
+    def _calc_scale_bar_size(self, image_width_mm):
+        """
+        適切なscale barの長さを計算する
+        画像サイズの4分の1以下に最も近く、(10, 25, 50) * 10^n となる値を返す
+        """
+        target_length = image_width_mm / 3
+
+        # Possible scale bar lengths (10, 25, 50) * 10^n
+        possible_lengths = []
+        for n in range(-4, 2):  # 1 um ~ 50 mm
+            for base in [10, 25, 50]:
+                possible_lengths.append(base * (10 ** n))
+
+        # Find the closest possible length to target_length
+        closest_length = min(possible_lengths, key=lambda x: abs(x - target_length))
+        return closest_length
 
 
 def main():
